@@ -26,6 +26,8 @@ class QuestionsService:
             response = result.scalars().all()
 
             if len(response) > 0:
-                return [OnlyQuestionsGetSchema.model_validate(item) for item in response]
+                return [
+                    OnlyQuestionsGetSchema.model_validate(item) for item in response
+                ]
 
             return []

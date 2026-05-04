@@ -16,11 +16,13 @@ class UserInstitutionService:
             raise HTTPException(status_code=400, detail="Incorrect Id format") from e
 
         async with db as session:
-            query = select(UsersInstitutions).where(
-                UsersInstitutions.user_id == user_uuid_id,
-                UsersInstitutions.institution_id == institution_uuid_id,
-            ).options(
-                joinedload(UsersInstitutions.profile)
+            query = (
+                select(UsersInstitutions)
+                .where(
+                    UsersInstitutions.user_id == user_uuid_id,
+                    UsersInstitutions.institution_id == institution_uuid_id,
+                )
+                .options(joinedload(UsersInstitutions.profile))
             )
 
             result = await session.execute(query)

@@ -9,6 +9,7 @@ from src.utils.fernet_utils import FernetUtils
 
 class UsersBase(BaseModel):
     """Base schema for user data with encrypted fields."""
+
     name: str
     nickname: str
     password: str
@@ -21,13 +22,14 @@ class UsersBase(BaseModel):
             "example": {
                 "name": "Pedro Vieira Admin",
                 "nickname": "JokerVLp",
-                "password": "123456"
+                "password": "123456",
             }
         }
 
 
 class UsersUpdate(BaseModel):
     """Schema for partial user updates with field encryption."""
+
     nickname: Optional[str] = None
     password: Optional[str] = None
 
@@ -57,6 +59,7 @@ class UsersUpdate(BaseModel):
 
 class UsersPost(UsersBase):
     """Schema for creating a new user with encrypted fields."""
+
     @field_validator("name", "nickname", "password", mode="before")
     @classmethod
     def encrypt_fields(cls, value: str) -> str:
@@ -77,6 +80,7 @@ class UsersPost(UsersBase):
 
 class UsersGet(UsersBase):
     """Schema for retrieving user data with decryption and profile relationship."""
+
     id: UUID
     profile: Optional[ProfileGet] = None
 
@@ -113,12 +117,13 @@ class UsersGet(UsersBase):
         try:
             return FernetUtils().decrypt(value)
 
-        except Exception: # pylint: disable=broad-exception-caught
+        except Exception:  # pylint: disable=broad-exception-caught
             return value
 
 
 class UsersNoPasswordResponse(BaseModel):
     """Schema for user response without password field."""
+
     id: UUID
     name: str
     nickname: str
@@ -151,12 +156,13 @@ class UsersNoPasswordResponse(BaseModel):
         try:
             return FernetUtils().decrypt(value)
 
-        except Exception: # pylint: disable=broad-exception-caught
+        except Exception:  # pylint: disable=broad-exception-caught
             return value
 
 
 class UsersLoginResponse(BaseModel):
     """Schema dedicated to login responses with decrypted public user fields."""
+
     id: UUID
     name: str
     nickname: str
@@ -188,5 +194,5 @@ class UsersLoginResponse(BaseModel):
         try:
             return FernetUtils().decrypt(value)
 
-        except Exception: # pylint: disable=broad-exception-caught
+        except Exception:  # pylint: disable=broad-exception-caught
             return value

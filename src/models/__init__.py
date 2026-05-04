@@ -21,12 +21,9 @@ from src.schemas import (
     QuestionAnswersPost,
 )
 
-from src.schemas import (
-    InstitutionBase
-)
+from src.schemas import InstitutionBase
 
 from src.configs.db_connection import get_db
-
 
 routes_declaration: list[dict[str, Any]] = [
     {
@@ -97,5 +94,5 @@ routes_declaration: list[dict[str, Any]] = [
         "route_prefix": "/question-answers",
         "route_tags": ["Question Answers"],
         "dependencies": True,
-    }
+    },
 ]

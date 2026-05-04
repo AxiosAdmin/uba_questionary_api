@@ -1,4 +1,5 @@
 """Authentication controller handling login requests and token generation."""
+
 from fastapi import HTTPException
 
 from src.services.auth_service import AuthService

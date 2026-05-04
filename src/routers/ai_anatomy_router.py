@@ -1,4 +1,5 @@
 """Router for AI anatomy question generation endpoints."""
+
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from api_crud_generate_libary.schemas.pattern_schema import PatternSchema
@@ -10,11 +11,10 @@ from src.configs.db_connection import get_db
 
 ai_anatomy_router = APIRouter()
 
+
 @ai_anatomy_router.post("/anatomy", response_model=PatternSchema[QuestionsGet])
 async def generate_question(
-    request: Request,
-    data: AnatomySchema,
-    db: AsyncSession = Depends(get_db)
+    request: Request, data: AnatomySchema, db: AsyncSession = Depends(get_db)
 ):
     """
     Generate an anatomy question using AI.
@@ -28,5 +28,7 @@ async def generate_question(
         dict: Generated question in JSON format
     """
     institution_id = request.headers.get("x-institution-id")
-    response = await AIAnatomyController.generate_question(data.parameter, db, institution_id)
+    response = await AIAnatomyController.generate_question(
+        data.parameter, db, institution_id
+    )
     return response

@@ -118,7 +118,11 @@ class QuestionAnswersService:
                     answer_updated_at=answer_updated_at,
                 )
                 for (
-                    question, user_answer, answered_user_id, answered_at, answer_updated_at
+                    question,
+                    user_answer,
+                    answered_user_id,
+                    answered_at,
+                    answer_updated_at,
                 ) in result.all()
             ]
         }

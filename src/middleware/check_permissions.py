@@ -46,7 +46,9 @@ async def check_permissions(institution_id, user_id, method, url_path, db):
         if PERMISSIONS.get(user_institution.profile.name):
             context = url_path.split("/")[1]
             try:
-                if method in PERMISSIONS.get(user_institution.profile.name).get(context):
+                if method in PERMISSIONS.get(user_institution.profile.name).get(
+                    context
+                ):
                     return True
 
             except Exception as e:
