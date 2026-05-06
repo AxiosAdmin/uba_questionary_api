@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from src.models import Users
 from src.services.institutions_service import InstitutionsService
-from src.services.user_institutions_service import UserInstitutionsService
+from src.services.user_institution_service import UserInstitutionService
 from src.utils.fernet_utils import FernetUtils
 
 fernet_utils = FernetUtils()
@@ -44,7 +44,7 @@ class AuthService:
 
                 uba_institution = await InstitutionsService.get_uba_institution(db)
                 user_institutions = (
-                    await UserInstitutionsService.read_user_institutions(
+                    await UserInstitutionService.read_user_institutions(
                         user.id, uba_institution.id, db
                     )
                 )

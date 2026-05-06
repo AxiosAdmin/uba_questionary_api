@@ -19,7 +19,12 @@ class Settings(BaseSettings):
     FERNET_KEY: str
     JWT_SECRET_KEY: str
     ALGORITHM: str
-    JWT_EXPIRATION_MINUTES: int = 30
+    JWT_EXPIRATION_MINUTES: int
+    RESTRICT_STRIPE_AUTH_KEY: str
+    PUBLIC_STRIPE_AUTH_KEY: str
+    SECRET_STRIPE_AUTH_KEY: str
+    WEBHOOK_STRIPE_SECRECT_KEY: str
+
     FRONTEND_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",

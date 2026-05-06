@@ -33,7 +33,7 @@ async def check_permissions(institution_id, user_id, method, url_path, db):
     if user.global_role == "Admin":
         return True
 
-    user_institution = await UserInstitutionService.get_user_institution(
+    user_institution = await UserInstitutionService.read_user_institutions(
         str(user_id), str(institution_id), db
     )
 

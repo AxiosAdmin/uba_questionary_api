@@ -7,8 +7,9 @@ from src.models import UsersInstitutions
 
 
 class UserInstitutionService:
+
     @staticmethod
-    async def get_user_institution(user_id, institution_id, db):
+    async def read_user_institutions(user_id, institution_id, db):
         try:
             user_uuid_id = UUID(user_id)
             institution_uuid_id = UUID(institution_id)
@@ -19,13 +20,17 @@ class UserInstitutionService:
             query = (
                 select(UsersInstitutions)
                 .where(
-                    UsersInstitutions.user_id == user_uuid_id,
-                    UsersInstitutions.institution_id == institution_uuid_id,
+                    UsersInstitutions.user_id == user_uuid_id
+                    and UsersInstitutions.institution_id == institution_uuid_id
                 )
-                .options(joinedload(UsersInstitutions.profile))
+                .options(
+                    joinedload(UsersInstitutions.user),
+                    joinedload(UsersInstitutions.institution),
+                    joinedload(UsersInstitutions.profile),
+                )
             )
 
             result = await session.execute(query)
-            user_institution = result.scalars().first()
+            user_institutions = result.scalars().first()
 
-            return user_institution
+            return user_institutions
