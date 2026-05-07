@@ -27,8 +27,10 @@ class UsersController:
         )
 
         for user in users[0]:
-            if fernet.decrypt(user.nickname) == fernet.decrypt(body.nickname):
-                raise HTTPException(status_code=400, detail="Nickname already exists")
+            if fernet.decrypt(user.nickname) == fernet.decrypt(
+                body.nickname
+            ) or fernet.decrypt(user.email) == fernet.decrypt(body.email):
+                raise HTTPException(status_code=400, detail="Nickname or Email already exists")
 
         new_user = await generic_user_service.create(
             body.model_dump(),
