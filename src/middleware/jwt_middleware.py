@@ -42,13 +42,14 @@ async def jwt_checker(request: Request, call_next):
 
     try:
         decoded_token = JWTUtils.decode_jwt(token)
-        await check_permissions(
-            request.headers.get("x-institution-id"),
-            decoded_token["id"],
-            request.method,
-            request.url.path,
-            async_session(),
-        )
+        async with async_session() as session:
+            await check_permissions(
+                request.headers.get("x-institution-id"),
+                decoded_token["id"],
+                request.method,
+                request.url.path,
+                session,
+            )
 
     except jwt.ExpiredSignatureError:
         return JSONResponse(status_code=401, content={"detail": "Token expired"})

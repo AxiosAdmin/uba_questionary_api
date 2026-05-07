@@ -35,7 +35,12 @@ class UsersPost(UsersBase):
     class Config:
         from_attributes = True
         json_schema_extra = {
-            "example": {"nickname": "janedoe", "password": "newpassword456"}
+            "example": {
+                "name": "Pedro Vieira",
+                "email": "email@2mail.com",
+                "nickname": "janedoe",
+                "password": "newpassword456"
+            }
         }
 
     @field_validator("name", "email", "nickname", "password", mode="before")
@@ -70,11 +75,6 @@ class UsersGet(UsersBase):
                 "nickname": "johndoe",
                 "password": "securepassword123",
                 "profile_id": "123e4567-e89b-12d3-a456-426614174000",
-                "profile": {
-                    "id": "123e4567-e89b-12d3-a456-426614174000",
-                    "name": "Admin",
-                    "counter_limit": 100,
-                },
             }
         }
 

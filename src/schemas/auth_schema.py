@@ -70,3 +70,26 @@ class LoginAdminResponseSchema(BaseModel):
                 "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
             }
         }
+
+
+class LoginUserResponseSchema(BaseModel):
+    """Schema for login response with basic user data and JWT token."""
+
+    user: UsersNoPasswordResponse
+    token: str
+
+    class Config:
+        """Configure Pydantic to allow population from ORM objects and provide an example."""
+
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "user": {
+                    "id": "123e4567-e89b-12d3-a456-426614174000",
+                    "name": "John Doe",
+                    "nickname": "johndoe",
+                    "global_role": "User",
+                },
+                "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+            }
+        }

@@ -2,6 +2,7 @@ from fastapi import HTTPException
 from api_crud_generate_libary.services.service import Service
 
 from src.models import Users
+from src.services.auth_service import AuthService
 from src.services.user_institution_service import UserInstitutionService
 from src.helpers.permissions_list import PERMISSIONS
 
@@ -32,6 +33,9 @@ async def check_permissions(institution_id, user_id, method, url_path, db):
 
     if user.global_role == "Admin":
         return True
+
+    if not await AuthService.user_has_active_subscription(user.id, db):
+        raise HTTPException(status_code=403, detail="Active subscription required")
 
     user_institution = await UserInstitutionService.read_user_institutions(
         str(user_id), str(institution_id), db

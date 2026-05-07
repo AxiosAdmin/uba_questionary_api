@@ -11,17 +11,21 @@ class UserInstitutionService:
     @staticmethod
     async def read_user_institutions(user_id, institution_id, db):
         try:
-            user_uuid_id = UUID(user_id)
-            institution_uuid_id = UUID(institution_id)
-        except ValueError as e:
+            user_uuid_id = user_id if isinstance(user_id, UUID) else UUID(user_id)
+            institution_uuid_id = (
+                institution_id
+                if isinstance(institution_id, UUID)
+                else UUID(institution_id)
+            )
+        except (TypeError, ValueError) as e:
             raise HTTPException(status_code=400, detail="Incorrect Id format") from e
 
         async with db as session:
             query = (
                 select(UsersInstitutions)
                 .where(
-                    UsersInstitutions.user_id == user_uuid_id
-                    and UsersInstitutions.institution_id == institution_uuid_id
+                    UsersInstitutions.user_id == user_uuid_id,
+                    UsersInstitutions.institution_id == institution_uuid_id,
                 )
                 .options(
                     joinedload(UsersInstitutions.user),

@@ -10,6 +10,7 @@ from src.models.models import (
     UsersInstitutions,
     QuestionAnswers,
     QuestionFeedbacks,
+    Subscriptions,
 )
 from src.schemas import (
     QuestionsBase,
