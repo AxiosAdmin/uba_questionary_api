@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     PUBLIC_STRIPE_AUTH_KEY: str
     SECRET_STRIPE_AUTH_KEY: str
     WEBHOOK_STRIPE_SECRECT_KEY: str
+    DEFAULT_PRICE_ID: str
+    PAYMENT_CURRENCY: str
 
     FRONTEND_ORIGINS: list[str] = [
         "http://localhost:3000",

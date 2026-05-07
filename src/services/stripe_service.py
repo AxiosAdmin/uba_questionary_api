@@ -9,7 +9,6 @@ from src.models.models import Institutions, Profiles, Subscriptions, UsersInstit
 
 stripe_client = StripeClient(settings.SECRET_STRIPE_AUTH_KEY)
 
-DEFAULT_PRICE_ID = "price_1TTnk4Q0ygO3vjZJGt8NL2I0"
 UBA_INSTITUTION_NAME = "UBA"
 UBA_PROFILE_NAME = "basic_uba_user"
 ACTIVE_ACCESS_STATUSES = {"active"}
@@ -23,18 +22,18 @@ class StripeService:
         stripe_session = stripe_client.v1.checkout.sessions.create(
             {
                 "mode": "subscription",
-                "line_items": [{"price": DEFAULT_PRICE_ID, "quantity": 1}],
-                "currency": "USD",
+                "line_items": [{"price": settings.DEFAULT_PRICE_ID, "quantity": 1}],
+                "currency": settings.PAYMENT_CURRENCY,
                 "success_url": "https://www.urlparaaguardarpagamento.com.br",
                 "client_reference_id": user_id_str,
                 "metadata": {
                     "user_id": user_id_str,
-                    "price_id": DEFAULT_PRICE_ID,
+                    "price_id": settings.DEFAULT_PRICE_ID,
                 },
                 "subscription_data": {
                     "metadata": {
                         "user_id": user_id_str,
-                        "price_id": DEFAULT_PRICE_ID,
+                        "price_id": settings.DEFAULT_PRICE_ID,
                     }
                 },
             }
@@ -195,7 +194,7 @@ class StripeService:
             stripe_subscription_id=stripe_subscription_id,
             stripe_customer_id=stripe_customer_id,
             status=status,
-            price_id=price_id or DEFAULT_PRICE_ID,
+            price_id=price_id or settings.DEFAULT_PRICE_ID,
             current_period_end=current_period_end,
         )
         session.add(subscription)
@@ -357,7 +356,7 @@ class StripeService:
                     if not existing_subscription.price_id:
                         existing_subscription.price_id = (
                             StripeService._extract_price_id(session_data)
-                            or DEFAULT_PRICE_ID
+                            or settings.DEFAULT_PRICE_ID
                         )
 
                     existing_subscription.updated_at = datetime.datetime.now(
