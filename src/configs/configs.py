@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     WEBHOOK_STRIPE_SECRECT_KEY: str
     DEFAULT_PRICE_ID: str
     PAYMENT_CURRENCY: str
+    CHECKOUT_REDIRECT_URL: str
 
     FRONTEND_ORIGINS: list[str] = [
         "http://localhost:3000",

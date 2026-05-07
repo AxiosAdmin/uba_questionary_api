@@ -24,7 +24,7 @@ class StripeService:
                 "mode": "subscription",
                 "line_items": [{"price": settings.DEFAULT_PRICE_ID, "quantity": 1}],
                 "currency": settings.PAYMENT_CURRENCY,
-                "success_url": "https://www.urlparaaguardarpagamento.com.br",
+                "success_url": settings.CHECKOUT_REDIRECT_URL,
                 "client_reference_id": user_id_str,
                 "metadata": {
                     "user_id": user_id_str,
