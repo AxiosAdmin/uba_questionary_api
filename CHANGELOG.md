@@ -1,3 +1,10 @@
+## v1.7.0
+
+- Added Payment logic
+- Implemented subscription managment using stripe webhooks
+- Created a subscriptions table
+- Adjustments on Login route and permissions logic
+
 ## v1.6.12
 
 - Changed the prompt logic to improve the questions quality
