@@ -1,3 +1,9 @@
+## v1.8.0
+
+- Added question generation limit
+- Added the counter return on login
+- Counter managment using stripe events
+
 ## v1.7.0
 
 - Added Payment logic
