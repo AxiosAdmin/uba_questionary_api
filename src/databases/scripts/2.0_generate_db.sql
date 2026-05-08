@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS users_institutions (
 -- Tabela de questões
 CREATE TABLE IF NOT EXISTS questions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    institution_id UUID REFERENCES institutions(id) NOT NULL DEFAULT current_setting('app.current_institution_id', true)::uuid,
+    institution_id UUID REFERENCES institutions(id) NOT NULL,
     topic VARCHAR(100) NOT NULL,
     subject TEXT NOT NULL,
     question TEXT NOT NULL,
@@ -85,14 +85,4 @@ CREATE TABLE IF NOT EXISTS favorite_questions (
     user_id UUID REFERENCES users(id),
     question_id UUID REFERENCES questions(id),
     PRIMARY KEY (user_id, question_id)
-);
-
-ALTER TABLE questions FORCE ROW LEVEL SECURITY;
-
-CREATE POLICY tenant_policy ON questions
-USING (
-    institution_id = current_setting('app.current_institution_id')::uuid
-)
-WITH CHECK (
-    institution_id = current_setting('app.current_institution_id')::uuid
 );

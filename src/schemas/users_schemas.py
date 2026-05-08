@@ -1,63 +1,49 @@
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, field_validator
 
-from src.schemas.profile_schemas import ProfileGet
 from src.utils.fernet_utils import FernetUtils
 
 
 class UsersBase(BaseModel):
     """Base schema for user data with encrypted fields."""
+
     name: str
+    email: str
     nickname: str
-    password: str
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
         json_schema_extra = {
             "example": {
                 "name": "Pedro Vieira Admin",
+                "email": "email@email.com",
                 "nickname": "JokerVLp",
-                "password": "123456"
+                "password": "123456",
             }
         }
 
 
-class UsersUpdate(BaseModel):
-    """Schema for partial user updates with field encryption."""
-    nickname: Optional[str] = None
-    password: Optional[str] = None
+class UsersPost(UsersBase):
+    """Schema for creating a new user with encrypted fields."""
+    password: str
 
     class Config:
         from_attributes = True
         json_schema_extra = {
-            "example": {"nickname": "janedoe", "password": "newpassword456"}
+            "example": {
+                "name": "Pedro Vieira",
+                "email": "email@2mail.com",
+                "nickname": "janedoe",
+                "password": "newpassword456"
+            }
         }
 
-    @field_validator("nickname", "password", mode="before")
-    @classmethod
-    def encrypt_fields(cls, value: str) -> str:
-        """
-        Encrypt field value before saving to database.
-
-        Args:
-            value: The field value to encrypt
-
-        Returns:
-            str: Encrypted value
-        """
-        if not value:
-            return value
-
-        return FernetUtils().encrypt(value)
-
-
-class UsersPost(UsersBase):
-    """Schema for creating a new user with encrypted fields."""
-    @field_validator("name", "nickname", "password", mode="before")
+    @field_validator("name", "email", "nickname", "password", mode="before")
     @classmethod
     def encrypt_fields(cls, value: str) -> str:
         """
@@ -77,8 +63,9 @@ class UsersPost(UsersBase):
 
 class UsersGet(UsersBase):
     """Schema for retrieving user data with decryption and profile relationship."""
+
     id: UUID
-    profile: Optional[ProfileGet] = None
+    global_role: str
 
     class Config:
         from_attributes = True
@@ -88,15 +75,10 @@ class UsersGet(UsersBase):
                 "nickname": "johndoe",
                 "password": "securepassword123",
                 "profile_id": "123e4567-e89b-12d3-a456-426614174000",
-                "profile": {
-                    "id": "123e4567-e89b-12d3-a456-426614174000",
-                    "name": "Admin",
-                    "counter_limit": 100,
-                },
             }
         }
 
-    @field_validator("nickname", "password", mode="after")
+    @field_validator("name", "email", "nickname", mode="after")
     @classmethod
     def decrypt_fields(cls, value: str) -> str:
         """
@@ -113,12 +95,13 @@ class UsersGet(UsersBase):
         try:
             return FernetUtils().decrypt(value)
 
-        except Exception: # pylint: disable=broad-exception-caught
+        except Exception:  # pylint: disable=broad-exception-caught
             return value
 
 
 class UsersNoPasswordResponse(BaseModel):
     """Schema for user response without password field."""
+
     id: UUID
     name: str
     nickname: str
@@ -151,12 +134,13 @@ class UsersNoPasswordResponse(BaseModel):
         try:
             return FernetUtils().decrypt(value)
 
-        except Exception: # pylint: disable=broad-exception-caught
+        except Exception:  # pylint: disable=broad-exception-caught
             return value
 
 
 class UsersLoginResponse(BaseModel):
     """Schema dedicated to login responses with decrypted public user fields."""
+
     id: UUID
     name: str
     nickname: str
@@ -188,5 +172,5 @@ class UsersLoginResponse(BaseModel):
         try:
             return FernetUtils().decrypt(value)
 
-        except Exception: # pylint: disable=broad-exception-caught
+        except Exception:  # pylint: disable=broad-exception-caught
             return value

@@ -10,6 +10,7 @@ from src.routers import (
     auth_router,
     users_router,
     question_answers_router,
+    stripe_router
 )
 from src.configs.configs import settings
 from src.models import routes_declaration
@@ -81,6 +82,12 @@ for route in routes_declaration:
     app.include_router(
         item.router, prefix=route["route_prefix"], tags=route["route_tags"]
     )
+
+app.include_router(
+    stripe_router,
+    prefix="/stripe",
+    tags=["Stripe"],
+)
 
 app.include_router(
     ai_anatomy_router,

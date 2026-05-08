@@ -10,6 +10,7 @@ from src.models.models import (
     UsersInstitutions,
     QuestionAnswers,
     QuestionFeedbacks,
+    Subscriptions,
 )
 from src.schemas import (
     QuestionsBase,
@@ -21,12 +22,9 @@ from src.schemas import (
     QuestionAnswersPost,
 )
 
-from src.schemas import (
-    InstitutionBase
-)
+from src.schemas import InstitutionBase
 
 from src.configs.db_connection import get_db
-
 
 routes_declaration: list[dict[str, Any]] = [
     {
@@ -53,29 +51,6 @@ routes_declaration: list[dict[str, Any]] = [
         "dependencies": False,
     },
     {
-        "model_class": Questions,
-        "standard_schema": QuestionsBase,
-        "db_session": get_db,
-        "auth_callback": None,
-        "request_post_schema": None,
-        "request_update_schema": None,
-        "response_get_schema": QuestionsGet,
-        "response_get_by_id_schema": QuestionsGet,
-        "response_post_schema": QuestionsGet,
-        "response_delete_schema": None,
-        "response_patch_schema": QuestionsGet,
-        "enable_get": True,
-        "enable_get_by_id": True,
-        "enable_post": False,
-        "enable_delete": False,
-        "enable_patch": False,
-        "join_parameters": None,
-        "second_level_join_parameters": None,
-        "route_prefix": "/questions",
-        "route_tags": ["Questions"],
-        "dependencies": True,
-    },
-    {
         "model_class": QuestionAnswers,
         "standard_schema": QuestionAnswersBase,
         "db_session": get_db,
@@ -97,5 +72,5 @@ routes_declaration: list[dict[str, Any]] = [
         "route_prefix": "/question-answers",
         "route_tags": ["Question Answers"],
         "dependencies": True,
-    }
+    },
 ]

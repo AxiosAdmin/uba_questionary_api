@@ -79,6 +79,7 @@ class Users(Base):
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    email: Mapped[str] = mapped_column(Text, nullable=False)
     nickname: Mapped[str] = mapped_column(Text, nullable=False)
     password: Mapped[str] = mapped_column(Text, nullable=False)
     global_role: Mapped[str] = mapped_column(
@@ -92,6 +93,9 @@ class Users(Base):
     question: Mapped[list["Questions"]] = relationship(
         "Questions", secondary="favorite_questions", back_populates="user"
     )
+    subscriptions: Mapped[list["Subscriptions"]] = relationship(
+        "Subscriptions", back_populates="user"
+    )
     users_institutions: Mapped[list["UsersInstitutions"]] = relationship(
         "UsersInstitutions", back_populates="user"
     )
@@ -104,7 +108,7 @@ class Questions(Base):
     __tablename__ = "questions"
     __table_args__ = (
         CheckConstraint(
-            "correct_answer = ANY (ARRAY['A'::bpchar, 'B'::bpchar, 'C'::bpchar, 'D'::bpchar])",
+            "correct_answer = ANY (ARRAY['A'::bpchar, 'B'::bpchar, 'C'::bpchar, 'D'::bpchar, 'E'::bpchar])",
             name="questions_correct_answer_check",
         ),
         ForeignKeyConstraint(
@@ -118,14 +122,10 @@ class Questions(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )
-    institution_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid,
-        nullable=False,
-        server_default=text(
-            "(current_setting('app.current_institution_id'::text, true))::uuid"
-        ),
-    )
+    institution_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     topic: Mapped[str] = mapped_column(String(100), nullable=False)
+    subtopic: Mapped[str] = mapped_column(Text, nullable=False)
+    subtopic_description: Mapped[str] = mapped_column(Text, nullable=False)
     diversity_mode: Mapped[str] = mapped_column(Text, nullable=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer_a: Mapped[str] = mapped_column(Text, nullable=False)
@@ -140,8 +140,6 @@ class Questions(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, nullable=False, server_default=text("now()")
     )
-    subtopic: Mapped[str] = mapped_column(Text, nullable=False)
-    subtopic_description: Mapped[str] = mapped_column(Text, nullable=False)
     answer_e: Mapped[Optional[str]] = mapped_column(Text)
     explanation_e: Mapped[Optional[str]] = mapped_column(Text)
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
@@ -158,6 +156,45 @@ class Questions(Base):
     question_feedbacks: Mapped[list["QuestionFeedbacks"]] = relationship(
         "QuestionFeedbacks", back_populates="question"
     )
+
+
+class Subscriptions(Base):
+    __tablename__ = "subscriptions"
+    __table_args__ = (
+        CheckConstraint(
+            "status::text = ANY (ARRAY['active'::character varying, 'failed_payment'::character varying, 'canceled'::character varying, 'incomplete'::character varying, 'trialing'::character varying]::text[])",
+            name="subscriptions_status_check",
+        ),
+        ForeignKeyConstraint(
+            ["user_id"], ["users.id"], name="subscriptions_user_id_fkey"
+        ),
+        PrimaryKeyConstraint("id", name="subscriptions_pkey"),
+        UniqueConstraint(
+            "stripe_subscription_id", name="subscriptions_stripe_subscription_id_key"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    stripe_subscription_id: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    price_id: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("now()")
+    )
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text)
+    current_period_end: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    questions_generated_in_cycle: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    questions_generation_cycle_end: Mapped[Optional[datetime.datetime]] = (
+        mapped_column(DateTime)
+    )
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+
+    user: Mapped["Users"] = relationship("Users", back_populates="subscriptions")
 
 
 class UsersInstitutions(Base):
@@ -181,16 +218,16 @@ class UsersInstitutions(Base):
 
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     institution_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    profile_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, nullable=False, server_default=text("now()")
     )
-    profile_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
     institution: Mapped["Institutions"] = relationship(
         "Institutions", back_populates="users_institutions"
     )
-    profile: Mapped[Optional["Profiles"]] = relationship(
+    profile: Mapped["Profiles"] = relationship(
         "Profiles", back_populates="users_institutions"
     )
     user: Mapped["Users"] = relationship("Users", back_populates="users_institutions")
@@ -214,6 +251,10 @@ t_favorite_questions = Table(
 class QuestionAnswers(Base):
     __tablename__ = "question_answers"
     __table_args__ = (
+        CheckConstraint(
+            "answer = ANY (ARRAY['A'::bpchar, 'B'::bpchar, 'C'::bpchar, 'D'::bpchar, 'E'::bpchar])",
+            name="question_answers_answer_check",
+        ),
         ForeignKeyConstraint(
             ["question_id"], ["questions.id"], name="question_answers_question_id_fkey"
         ),
@@ -226,20 +267,18 @@ class QuestionAnswers(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    question_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     answer: Mapped[str] = mapped_column(CHAR(1), nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, nullable=False, server_default=text("now()")
     )
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
-    question_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
-    question: Mapped[Optional["Questions"]] = relationship(
+    question: Mapped["Questions"] = relationship(
         "Questions", back_populates="question_answers"
     )
-    user: Mapped[Optional["Users"]] = relationship(
-        "Users", back_populates="question_answers"
-    )
+    user: Mapped["Users"] = relationship("Users", back_populates="question_answers")
 
 
 class QuestionFeedbacks(Base):
@@ -256,14 +295,14 @@ class QuestionFeedbacks(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )
+    question_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     is_liked: Mapped[bool] = mapped_column(Boolean, nullable=False)
     feedback: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, nullable=False, server_default=text("now()")
     )
-    question_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
-    question: Mapped[Optional["Questions"]] = relationship(
+    question: Mapped["Questions"] = relationship(
         "Questions", back_populates="question_feedbacks"
     )

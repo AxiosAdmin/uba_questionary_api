@@ -1,7 +1,19 @@
+from typing import Optional
+
 from pydantic import BaseModel
 
 from src.schemas.user_institution_schema import UserInstitutionSchema
 from src.schemas.users_schemas import UsersNoPasswordResponse
+
+
+class QuestionGenerationUsageSchema(BaseModel):
+    """Schema for monthly question generation usage."""
+
+    questions_used: int
+    questions_limit: Optional[int] = None
+    questions_remaining: Optional[int] = None
+    cycle_end: Optional[str] = None
+    subscription_status: Optional[str] = None
 
 
 class LoginSchema(BaseModel):
@@ -22,6 +34,7 @@ class LoginResponseSchema(BaseModel):
 
     user: UserInstitutionSchema
     token: str
+    question_generation_usage: Optional[QuestionGenerationUsageSchema] = None
 
     class Config:
         """Configure Pydantic to allow population from ORM objects and provide an example."""
@@ -54,6 +67,7 @@ class LoginAdminResponseSchema(BaseModel):
 
     user: UsersNoPasswordResponse
     token: str
+    question_generation_usage: Optional[QuestionGenerationUsageSchema] = None
 
     class Config:
         """Configure Pydantic to allow population from ORM objects and provide an example."""
@@ -66,6 +80,30 @@ class LoginAdminResponseSchema(BaseModel):
                     "name": "John Doe",
                     "nickname": "johndoe",
                     "global_role": "admin",
+                },
+                "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+            }
+        }
+
+
+class LoginUserResponseSchema(BaseModel):
+    """Schema for login response with basic user data and JWT token."""
+
+    user: UsersNoPasswordResponse
+    token: str
+    question_generation_usage: Optional[QuestionGenerationUsageSchema] = None
+
+    class Config:
+        """Configure Pydantic to allow population from ORM objects and provide an example."""
+
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "user": {
+                    "id": "123e4567-e89b-12d3-a456-426614174000",
+                    "name": "John Doe",
+                    "nickname": "johndoe",
+                    "global_role": "User",
                 },
                 "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
             }

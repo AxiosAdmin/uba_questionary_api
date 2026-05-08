@@ -1,3 +1,21 @@
+## v1.8.1
+
+- Fixed answer questions GET route to send just questions that was answered by the user
+- Added permission to this route
+
+## v1.8.0
+
+- Added question generation limit
+- Added the counter return on login
+- Counter managment using stripe events
+
+## v1.7.0
+
+- Added Payment logic
+- Implemented subscription managment using stripe webhooks
+- Created a subscriptions table
+- Adjustments on Login route and permissions logic
+
 ## v1.6.12
 
 - Changed the prompt logic to improve the questions quality

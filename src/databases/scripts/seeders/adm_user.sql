@@ -5,4 +5,4 @@ INSERT INTO institutions (name) VALUES
 ('UBA');
 
 INSERT INTO profiles (name, questions_create_limit) VALUES
-('basic_uba_user', 320);
+('basic_uba_user', 150);

@@ -8,6 +8,7 @@ from src.schemas.auth_schema import (
     LoginSchema,
     LoginResponseSchema,
     LoginAdminResponseSchema,
+    LoginUserResponseSchema,
 )
 from src.configs.db_connection import get_db
 
@@ -15,7 +16,10 @@ auth_router = APIRouter()
 
 
 @auth_router.post(
-    "/login", response_model=LoginResponseSchema | LoginAdminResponseSchema
+    "/login",
+    response_model=LoginResponseSchema
+    | LoginAdminResponseSchema
+    | LoginUserResponseSchema,
 )
 async def login(body: LoginSchema, db: AsyncSession = Depends(get_db)):
     """
