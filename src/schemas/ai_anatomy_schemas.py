@@ -1,5 +1,6 @@
 from enum import Enum
-from pydantic import BaseModel
+
+from pydantic import BaseModel, ConfigDict
 
 
 class ParameterEnum(str, Enum):
@@ -13,12 +14,11 @@ class ParameterEnum(str, Enum):
 class AnatomySchema(BaseModel):
     """Schema for anatomy question generation request."""
 
-    parameter: ParameterEnum
-
-    class Config:
-        """Configure Pydantic to allow population from ORM objects and provide an example."""
-
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {"parameter": "Neuroanatomy | Splanchnology | Locomotor"}
-        }
+        },
+    )
+
+    parameter: ParameterEnum

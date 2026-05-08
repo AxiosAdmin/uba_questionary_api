@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from api_crud_generate_libary.schemas.pattern_schema import PatternSchemaDataList
+from uuid import UUID
 
 from src.configs.db_connection import get_db
 from src.controllers.question_answers_controller import QuestionAnswersController
@@ -14,7 +15,7 @@ question_answers_router = APIRouter()
     response_model=PatternSchemaDataList[UserQuestionWithLatestAnswerSchema],
 )
 async def get_questions_with_latest_user_answers(
-    user_id: str,
+    user_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
     """

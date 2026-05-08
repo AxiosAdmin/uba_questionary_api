@@ -3,3 +3,7 @@
 /docs/*.bkp
 __pycache__/
 src/databases/.cache/
+.venv
+.pytest_cache/
+tests/.pytest_cache/
+.coverage
