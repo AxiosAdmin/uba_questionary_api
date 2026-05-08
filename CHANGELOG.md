@@ -1,3 +1,8 @@
+## v1.8.1
+
+- Fixed answer questions GET route to send just questions that was answered by the user
+- Added permission to this route
+
 ## v1.8.0
 
 - Added question generation limit
