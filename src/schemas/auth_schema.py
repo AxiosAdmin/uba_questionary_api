@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from src.schemas.user_institution_schema import UserInstitutionSchema
 from src.schemas.users_schemas import UsersNoPasswordResponse
@@ -19,28 +19,21 @@ class QuestionGenerationUsageSchema(BaseModel):
 class LoginSchema(BaseModel):
     """Schema for login credentials."""
 
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={"example": {"nickname": "JokerVLP", "password": "123456"}},
+    )
+
     nickname: str
     password: str
-
-    class Config:
-        """Configure Pydantic to allow population from ORM objects and provide an example."""
-
-        from_attributes = True
-        json_schema_extra = {"example": {"nickname": "JokerVLP", "password": "123456"}}
 
 
 class LoginResponseSchema(BaseModel):
     """Schema for login response with authenticated user data and JWT token."""
 
-    user: UserInstitutionSchema
-    token: str
-    question_generation_usage: Optional[QuestionGenerationUsageSchema] = None
-
-    class Config:
-        """Configure Pydantic to allow population from ORM objects and provide an example."""
-
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "user": {
                     "user": {
@@ -59,21 +52,20 @@ class LoginResponseSchema(BaseModel):
                 },
                 "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
             }
-        }
+        },
+    )
+
+    user: UserInstitutionSchema
+    token: str
+    question_generation_usage: Optional[QuestionGenerationUsageSchema] = None
 
 
 class LoginAdminResponseSchema(BaseModel):
     """Schema for login response with authenticated user data and JWT token."""
 
-    user: UsersNoPasswordResponse
-    token: str
-    question_generation_usage: Optional[QuestionGenerationUsageSchema] = None
-
-    class Config:
-        """Configure Pydantic to allow population from ORM objects and provide an example."""
-
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "user": {
                     "id": "123e4567-e89b-12d3-a456-426614174000",
@@ -83,21 +75,20 @@ class LoginAdminResponseSchema(BaseModel):
                 },
                 "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
             }
-        }
-
-
-class LoginUserResponseSchema(BaseModel):
-    """Schema for login response with basic user data and JWT token."""
+        },
+    )
 
     user: UsersNoPasswordResponse
     token: str
     question_generation_usage: Optional[QuestionGenerationUsageSchema] = None
 
-    class Config:
-        """Configure Pydantic to allow population from ORM objects and provide an example."""
 
-        from_attributes = True
-        json_schema_extra = {
+class LoginUserResponseSchema(BaseModel):
+    """Schema for login response with basic user data and JWT token."""
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "user": {
                     "id": "123e4567-e89b-12d3-a456-426614174000",
@@ -107,4 +98,9 @@ class LoginUserResponseSchema(BaseModel):
                 },
                 "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
             }
-        }
+        },
+    )
+
+    user: UsersNoPasswordResponse
+    token: str
+    question_generation_usage: Optional[QuestionGenerationUsageSchema] = None

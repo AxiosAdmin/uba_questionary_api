@@ -3,11 +3,29 @@
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class QuestionsBase(BaseModel):
     """Base schema for multiple-choice question data."""
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "question": "Qual Ã© a capital do Brasil?",
+                "answer_a": "SÃ£o Paulo",
+                "answer_b": "Rio de Janeiro",
+                "answer_c": "BrasÃ­lia",
+                "answer_d": "Belo Horizonte",
+                "correct_answer": "C",
+                "explanation_a": "SÃ£o Paulo Ã© a maior cidade, mas nÃ£o a capital.",
+                "explanation_b": "Rio de Janeiro foi a capital antiga.",
+                "explanation_c": "BrasÃ­lia Ã© a capital atual.",
+                "explanation_d": "Belo Horizonte Ã© uma cidade importante, mas nÃ£o a capital.",
+            }
+        },
+    )
 
     question: str
     answer_a: str
@@ -20,26 +38,28 @@ class QuestionsBase(BaseModel):
     explanation_c: Optional[str] = None
     explanation_d: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
-            "example": {
-                "question": "Qual é a capital do Brasil?",
-                "answer_a": "São Paulo",
-                "answer_b": "Rio de Janeiro",
-                "answer_c": "Brasília",
-                "answer_d": "Belo Horizonte",
-                "correct_answer": "C",
-                "explanation_a": "São Paulo é a maior cidade, mas não a capital.",
-                "explanation_b": "Rio de Janeiro foi a capital antiga.",
-                "explanation_c": "Brasília é a capital atual.",
-                "explanation_d": "Belo Horizonte é uma cidade importante, mas não a capital.",
-            }
-        }
-
 
 class QuestionsGet(QuestionsBase):
     """Schema for retrieving question data with ID."""
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "question": "Qual Ã© a capital do Brasil?",
+                "answer_a": "SÃ£o Paulo",
+                "answer_b": "Rio de Janeiro",
+                "answer_c": "BrasÃ­lia",
+                "answer_d": "Belo Horizonte",
+                "correct_answer": "C",
+                "explanation_a": "SÃ£o Paulo Ã© a maior cidade, mas nÃ£o a capital.",
+                "explanation_b": "Rio de Janeiro foi a capital antiga.",
+                "explanation_c": "BrasÃ­lia Ã© a capital atual.",
+                "explanation_d": "Belo Horizonte Ã© uma cidade importante, mas nÃ£o a capital.",
+            }
+        },
+    )
 
     id: UUID
     institution_id: UUID
@@ -48,30 +68,13 @@ class QuestionsGet(QuestionsBase):
     subtopic_description: str
     diversity_mode: str
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
-            "example": {
-                "id": "123e4567-e89b-12d3-a456-426614174000",
-                "question": "Qual é a capital do Brasil?",
-                "answer_a": "São Paulo",
-                "answer_b": "Rio de Janeiro",
-                "answer_c": "Brasília",
-                "answer_d": "Belo Horizonte",
-                "correct_answer": "C",
-                "explanation_a": "São Paulo é a maior cidade, mas não a capital.",
-                "explanation_b": "Rio de Janeiro foi a capital antiga.",
-                "explanation_c": "Brasília é a capital atual.",
-                "explanation_d": "Belo Horizonte é uma cidade importante, mas não a capital.",
-            }
-        }
-
 
 class OnlyQuestionsGetSchema(BaseModel):
     """Schema for retrieving question data without ID."""
 
-    question: str
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={"example": {"question": "Qual Ã© a capital do Brasil?"}},
+    )
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {"example": {"question": "Qual é a capital do Brasil?"}}
+    question: str

@@ -3,3 +3,4 @@
 /docs/*.bkp
 __pycache__/
 src/databases/.cache/
+.venv

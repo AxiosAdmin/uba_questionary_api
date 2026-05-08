@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from src.utils.fernet_utils import FernetUtils
 
@@ -10,38 +10,41 @@ from src.utils.fernet_utils import FernetUtils
 class UsersBase(BaseModel):
     """Base schema for user data with encrypted fields."""
 
-    name: str
-    email: str
-    nickname: str
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "name": "Pedro Vieira Admin",
                 "email": "email@email.com",
                 "nickname": "JokerVLp",
                 "password": "123456",
             }
-        }
+        },
+    )
+
+    name: str
+    email: str
+    nickname: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class UsersPost(UsersBase):
     """Schema for creating a new user with encrypted fields."""
-    password: str
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "name": "Pedro Vieira",
                 "email": "email@2mail.com",
                 "nickname": "janedoe",
-                "password": "newpassword456"
+                "password": "newpassword456",
             }
-        }
+        },
+    )
+
+    password: str
 
     @field_validator("name", "email", "nickname", "password", mode="before")
     @classmethod
@@ -64,19 +67,20 @@ class UsersPost(UsersBase):
 class UsersGet(UsersBase):
     """Schema for retrieving user data with decryption and profile relationship."""
 
-    id: UUID
-    global_role: str
-
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": "123e4567-e89b-12d3-a456-426614174000",
                 "nickname": "johndoe",
                 "password": "securepassword123",
                 "profile_id": "123e4567-e89b-12d3-a456-426614174000",
             }
-        }
+        },
+    )
+
+    id: UUID
+    global_role: str
 
     @field_validator("name", "email", "nickname", mode="after")
     @classmethod
@@ -102,20 +106,21 @@ class UsersGet(UsersBase):
 class UsersNoPasswordResponse(BaseModel):
     """Schema for user response without password field."""
 
-    id: UUID
-    name: str
-    nickname: str
-    global_role: str
-
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": "123e4567-e89b-12d3-a456-426614174000",
                 "name": "John Doe",
                 "nickname": "johndoe",
             }
-        }
+        },
+    )
+
+    id: UUID
+    name: str
+    nickname: str
+    global_role: str
 
     @field_validator("name", "nickname", mode="after")
     @classmethod
@@ -141,19 +146,20 @@ class UsersNoPasswordResponse(BaseModel):
 class UsersLoginResponse(BaseModel):
     """Schema dedicated to login responses with decrypted public user fields."""
 
-    id: UUID
-    name: str
-    nickname: str
-
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": "123e4567-e89b-12d3-a456-426614174000",
                 "name": "John Doe",
                 "nickname": "johndoe",
             }
-        }
+        },
+    )
+
+    id: UUID
+    name: str
+    nickname: str
 
     @field_validator("name", "nickname", mode="after")
     @classmethod

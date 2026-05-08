@@ -4,11 +4,13 @@ import json
 from typing import Any
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+
+    model_config = SettingsConfigDict(env_file=".env")
 
     POSTGRES_DB: str
     POSTGRES_USER: str
@@ -54,11 +56,6 @@ class Settings(BaseSettings):
             f"{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
-
-    class Config:
-        """Configuration for loading environment variables from a .env file."""
-
-        env_file = ".env"
 
 
 settings = Settings()  # type: ignore[call-arg]
