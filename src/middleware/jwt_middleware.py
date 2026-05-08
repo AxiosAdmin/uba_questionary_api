@@ -50,6 +50,7 @@ async def jwt_checker(request: Request, call_next):
                 request.url.path,
                 session,
             )
+        request.state.user_id = decoded_token["id"]
 
     except jwt.ExpiredSignatureError:
         return JSONResponse(status_code=401, content={"detail": "Token expired"})

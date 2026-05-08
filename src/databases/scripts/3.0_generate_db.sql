@@ -88,6 +88,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     status VARCHAR(30) NOT NULL CHECK (status IN ( 'active', 'failed_payment', 'canceled', 'incomplete', 'trialing')),
     price_id TEXT NOT NULL,
     current_period_end TIMESTAMP,
+    questions_generated_in_cycle INTEGER NOT NULL DEFAULT 0,
+    questions_generation_cycle_end TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP
 );

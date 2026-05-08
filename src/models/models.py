@@ -186,6 +186,12 @@ class Subscriptions(Base):
     )
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text)
     current_period_end: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    questions_generated_in_cycle: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    questions_generation_cycle_end: Mapped[Optional[datetime.datetime]] = (
+        mapped_column(DateTime)
+    )
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
     user: Mapped["Users"] = relationship("Users", back_populates="subscriptions")

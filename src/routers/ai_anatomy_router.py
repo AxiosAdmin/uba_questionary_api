@@ -28,7 +28,8 @@ async def generate_question(
         dict: Generated question in JSON format
     """
     institution_id = request.headers.get("x-institution-id")
+    user_id = getattr(request.state, "user_id", None)
     response = await AIAnatomyController.generate_question(
-        data.parameter, db, institution_id
+        data.parameter, db, institution_id, user_id
     )
     return response

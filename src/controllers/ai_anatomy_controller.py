@@ -6,7 +6,8 @@ import random
 from fastapi import HTTPException
 
 from src.services.ai_anatomy_service import AIAnatomyService
-from src.services.questions_service import QuestionsService, questions_service
+from src.services.questions_service import QuestionsService
+from src.services.subscription_service import SubscriptionService
 
 from src.helpers.questions_text import UBA_DIVERSITY_MODES
 from src.helpers.check_subtopic import check_anatomy_sub_topic
@@ -16,13 +17,14 @@ class AIAnatomyController:
     """Controller for handling AI anatomy question generation."""
 
     @staticmethod
-    async def generate_question(parameter: str, db, institution_id):
+    async def generate_question(parameter: str, db, institution_id, user_id):
         """
         Generate an anatomy question using AI based on the specified parameter.
 
         Args:
             parameter: The anatomy topic parameter (e.g., Neuro, Esplacno, Locomotor)
             institution_id: The institution ID from the request header
+            user_id: Authenticated user ID from the JWT token
 
         Returns:
             dict: JSON response containing the generated question data
@@ -40,6 +42,18 @@ class AIAnatomyController:
                 status_code=400,
                 detail="institution_id is required and must be a valid UUID.",
             )
+
+        if not user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="Authenticated user is required to generate questions.",
+            )
+
+        await SubscriptionService.validate_question_generation_availability(
+            user_id=user_id,
+            institution_id=institution_id,
+            db=db,
+        )
 
         used_diversity_mode = random.choice(UBA_DIVERSITY_MODES)
         used_subtopic, used_subtopic_description = check_anatomy_sub_topic(parameter)
@@ -64,6 +78,17 @@ class AIAnatomyController:
         json_response["diversity_mode"] = used_diversity_mode
         json_response["institution_id"] = institution_id
 
-        question_response = await questions_service.create(json_response, db)
+        (
+            question_response,
+            question_generation_usage,
+        ) = await SubscriptionService.create_question_and_consume_quota(
+            user_id=user_id,
+            institution_id=institution_id,
+            question_payload=json_response,
+            db=db,
+        )
 
-        return {"data": question_response}
+        return {
+            "data": question_response,
+            "question_generation_usage": question_generation_usage,
+        }

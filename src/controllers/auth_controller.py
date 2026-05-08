@@ -3,6 +3,7 @@
 from fastapi import HTTPException
 
 from src.services.auth_service import AuthService
+from src.services.subscription_service import SubscriptionService
 from src.utils.jwt_utils import JWTUtils
 
 
@@ -24,18 +25,37 @@ class AuthController:
         """
         try:
             user = await AuthService.login(nickname, password, db)
+            question_generation_usage = None
 
             if hasattr(user, "user") and user.user.id:
+                question_generation_usage = (
+                    await SubscriptionService.get_question_generation_usage(
+                        user_id=user.user.id,
+                        institution_id=user.institution_id,
+                        db=db,
+                    )
+                )
                 token_response = JWTUtils.encode_jwt(
                     {"id": str(user.user.id), "sub": str(user.user.id)}
                 )
 
             else:
+                if getattr(user, "global_role", None) != "Admin":
+                    question_generation_usage = (
+                        await SubscriptionService.get_question_generation_usage(
+                            user_id=user.id,
+                            institution_id=None,
+                            db=db,
+                        )
+                    )
                 token_response = JWTUtils.encode_jwt(
                     {"id": str(user.id), "sub": str(user.id)}
                 )
 
-            return {"user": user}, token_response
+            return {
+                "user": user,
+                "question_generation_usage": question_generation_usage,
+            }, token_response
 
         except ValueError as e:
             raise HTTPException(status_code=401, detail=str(e)) from e

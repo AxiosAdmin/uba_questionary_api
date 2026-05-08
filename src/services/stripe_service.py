@@ -175,6 +175,10 @@ class StripeService:
         )
 
         if subscription:
+            period_changed = (
+                current_period_end is not None
+                and subscription.current_period_end != current_period_end
+            )
             subscription.user_id = user_id
             subscription.status = status
             subscription.price_id = price_id or subscription.price_id
@@ -184,6 +188,16 @@ class StripeService:
             subscription.current_period_end = (
                 current_period_end or subscription.current_period_end
             )
+            if period_changed:
+                subscription.questions_generated_in_cycle = 0
+                subscription.questions_generation_cycle_end = current_period_end
+            elif (
+                subscription.questions_generation_cycle_end is None
+                and subscription.current_period_end is not None
+            ):
+                subscription.questions_generation_cycle_end = (
+                    subscription.current_period_end
+                )
             subscription.updated_at = datetime.datetime.now(datetime.UTC).replace(
                 tzinfo=None
             )
@@ -196,6 +210,8 @@ class StripeService:
             status=status,
             price_id=price_id or settings.DEFAULT_PRICE_ID,
             current_period_end=current_period_end,
+            questions_generated_in_cycle=0,
+            questions_generation_cycle_end=current_period_end,
         )
         session.add(subscription)
         return subscription, "created"
