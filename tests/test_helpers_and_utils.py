@@ -82,6 +82,26 @@ def test_users_get_decrypts_sensitive_fields():
     assert user.nickname == "pedrov"
 
 
+def test_users_get_decrypt_fields_returns_original_on_invalid_value():
+    assert UsersGet.decrypt_fields("plain-text") == "plain-text"
+
+
+def test_users_no_password_response_decrypt_fields_returns_original_on_invalid_value():
+    from src.schemas.users_schemas import UsersNoPasswordResponse
+
+    assert UsersNoPasswordResponse.decrypt_fields("plain-text") == "plain-text"
+
+
+def test_users_login_response_decrypt_fields_returns_original_on_invalid_value():
+    from src.schemas.users_schemas import UsersLoginResponse
+
+    assert UsersLoginResponse.decrypt_fields("plain-text") == "plain-text"
+
+
+def test_users_post_encrypt_fields_returns_empty_value():
+    assert UsersPost.encrypt_fields("") == ""
+
+
 def test_check_anatomy_sub_topic_for_locomotor(monkeypatch):
     expected_key = next(iter(LOCOMOTOR_DESCRIPTIONS.keys()))
     monkeypatch.setattr("src.helpers.check_subtopic.random.choice", lambda seq: expected_key)

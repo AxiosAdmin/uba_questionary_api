@@ -144,6 +144,26 @@ def test_question_answers_latest_answers_rejects_invalid_token(
     assert response.json()["detail"] == "Invalid token"
 
 
+def test_question_answers_latest_answers_rejects_expired_token(
+    client, override_db, monkeypatch
+):
+    monkeypatch.setattr(
+        "src.middleware.jwt_middleware.JWTUtils.decode_jwt",
+        staticmethod(
+            lambda token: (_ for _ in ()).throw(jwt.ExpiredSignatureError("expired"))
+        ),
+    )
+
+    response = client.get(
+        "/question-answers/latest-answers",
+        params={"user_id": str(uuid4())},
+        headers={"Authorization": "Bearer expired", "x-institution-id": str(uuid4())},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Token expired"
+
+
 def test_question_answers_latest_answers_returns_data(
     client, override_db, authorize_request, monkeypatch
 ):

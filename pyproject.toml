@@ -23,6 +23,7 @@ dependencies = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 cache_dir = "tests/.pytest_cache"
+addopts = "-p no:cacheprovider"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0.0,<9.0.0"

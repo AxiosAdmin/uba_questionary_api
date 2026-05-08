@@ -3,6 +3,7 @@ import json
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
 from fastapi import HTTPException
 
 from src.controllers.ai_anatomy_controller import AIAnatomyController
@@ -82,6 +83,34 @@ def test_auth_controller_login_translates_value_error_to_http_401(monkeypatch):
         assert exc.detail == "Invalid nickname or password"
     else:
         assert False, "Expected HTTP 401 for invalid credentials"
+
+
+def test_auth_controller_login_returns_usage_for_regular_user(monkeypatch):
+    expected_user = SimpleNamespace(id=uuid4(), global_role="User")
+
+    async def _login(*args, **kwargs):
+        return expected_user
+
+    async def _usage(*args, **kwargs):
+        return {"questions_used": 4, "questions_limit": None, "questions_remaining": None}
+
+    monkeypatch.setattr("src.controllers.auth_controller.AuthService.login", _login)
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.SubscriptionService.get_question_generation_usage",
+        _usage,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.JWTUtils.encode_jwt",
+        staticmethod(lambda payload: "jwt-user"),
+    )
+
+    response, token = asyncio.run(
+        AuthController.login("user", "secret123", FakeAsyncSession())
+    )
+
+    assert token == "jwt-user"
+    assert response["user"] is expected_user
+    assert response["question_generation_usage"]["questions_used"] == 4
 
 
 def test_users_controller_create_user_rejects_duplicate_nickname(monkeypatch):
@@ -337,3 +366,48 @@ def test_stripe_controller_webhook_dispatches_to_expected_service(monkeypatch):
     )
 
     assert response == {"status": "processed", "event": "invoice.paid"}
+
+
+@pytest.mark.parametrize(
+    ("event_type", "service_name"),
+    [
+        ("checkout.session.completed", "checkout_session_completed"),
+        ("customer.subscription.created", "customer_subscription_created"),
+        ("customer.subscription.updated", "customer_subscription_updated"),
+        ("customer.subscription.paused", "customer_subscription_paused"),
+        ("customer.subscription.resumed", "customer_subscription_resumed"),
+        ("invoice.payment_succeeded", "invoice_payment_succeeded"),
+        ("invoice.payment_failed", "invoice_payment_failed"),
+        ("customer.subscription.deleted", "customer_subscription_deleted"),
+    ],
+)
+def test_stripe_controller_webhook_dispatches_all_supported_events(
+    monkeypatch, event_type, service_name
+):
+    async def _handler(payload, db):
+        return {"event": payload["type"]}
+
+    monkeypatch.setattr(
+        f"src.controllers.stripe_controller.StripeService.{service_name}",
+        _handler,
+    )
+
+    response = asyncio.run(
+        StripeController.payment_response_webhook(
+            {"type": event_type, "data": {"object": {}}},
+            FakeAsyncSession(),
+        )
+    )
+
+    assert response == {"event": event_type}
+
+
+def test_stripe_controller_webhook_ignores_unknown_event():
+    response = asyncio.run(
+        StripeController.payment_response_webhook(
+            {"type": "unknown.event", "data": {"object": {}}},
+            FakeAsyncSession(),
+        )
+    )
+
+    assert response == {"status": "ignored"}
