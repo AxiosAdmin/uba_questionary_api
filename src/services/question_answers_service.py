@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import func, select
 
 from src.models import QuestionAnswers, Questions
 from src.schemas.questions_answers_schema import UserQuestionWithLatestAnswerSchema
@@ -17,18 +17,18 @@ class QuestionAnswersService:
         db,
     ):
         """
-        Return all questions with the latest answer sent by the given user, if any.
+        Return only questions that have a latest answer sent by the given user.
 
         The underlying SQL shape is equivalent to:
 
         SELECT
             q.*,
-            COALESCE(qa_latest.answer, '') AS user_answer,
+            qa_latest.answer AS user_answer,
             qa_latest.user_id,
             qa_latest.created_at AS answered_at,
             qa_latest.updated_at AS answer_updated_at
         FROM questions q
-        LEFT JOIN (
+        JOIN (
             SELECT *
             FROM (
                 SELECT
@@ -69,23 +69,31 @@ class QuestionAnswersService:
             .subquery()
         )
 
-        query = (
+        latest_ranked_answers_subquery = (
             select(
-                Questions,
-                func.coalesce(latest_answers_subquery.c.user_answer, "").label(
-                    "user_answer"
-                ),
+                latest_answers_subquery.c.question_id,
                 latest_answers_subquery.c.user_id,
+                latest_answers_subquery.c.user_answer,
                 latest_answers_subquery.c.answered_at,
                 latest_answers_subquery.c.answer_updated_at,
             )
-            .outerjoin(
-                latest_answers_subquery,
-                and_(
-                    latest_answers_subquery.c.question_id == Questions.id,
-                    latest_answers_subquery.c.row_num == 1,
-                ),
+            .where(latest_answers_subquery.c.row_num == 1)
+            .subquery()
+        )
+
+        query = (
+            select(
+                Questions,
+                latest_ranked_answers_subquery.c.user_answer,
+                latest_ranked_answers_subquery.c.user_id,
+                latest_ranked_answers_subquery.c.answered_at,
+                latest_ranked_answers_subquery.c.answer_updated_at,
             )
+            .join(
+                latest_ranked_answers_subquery,
+                latest_ranked_answers_subquery.c.question_id == Questions.id,
+            )
+            .where(latest_ranked_answers_subquery.c.user_id == user_id)
             .order_by(Questions.created_at)
         )
 
@@ -97,7 +105,7 @@ class QuestionAnswersService:
                     id=question.id,
                     institution_id=question.institution_id,
                     topic=question.topic,
-                    subject=question.subject,
+                    subject=question.subtopic,
                     question=question.question,
                     answer_a=question.answer_a,
                     answer_b=question.answer_b,

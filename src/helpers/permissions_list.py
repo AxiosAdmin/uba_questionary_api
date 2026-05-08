@@ -7,7 +7,7 @@ como perguntas e perfis.
 
 PERMISSIONS = {
     "basic_uba_user": {
-        "questions": ["GET"],
         "ai": ["POST"],
+        "question-answers":["GET", "POST"],
     }
 }
