@@ -7,3 +7,4 @@ src/databases/.cache/
 .pytest_cache/
 tests/.pytest_cache/
 .coverage
+*.drawio.dtmp
