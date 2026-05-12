@@ -33,9 +33,7 @@ class Settings(BaseSettings):
     FRONTEND_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "https://ai-questionary-front-iyek.vercel.app",
-        "https://aiquestionaryfront-production.up.railway.app",
-        "https://dev.axiosacademy.com.br",
+        "https://ubaquestionaryfront-production.up.railway.app",
     ]
 
     @field_validator("FRONTEND_ORIGINS", mode="before")
