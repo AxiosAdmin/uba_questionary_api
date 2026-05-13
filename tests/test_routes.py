@@ -104,6 +104,24 @@ def test_users_route_validates_body(client, override_db):
     assert response.status_code == 422
 
 
+def test_users_route_rejects_weak_password(client, override_db):
+    response = client.post(
+        "/users",
+        json={
+            "name": "Pedro Vieira",
+            "email": "pedro@example.com",
+            "nickname": "pedrov",
+            "password": "secret123",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Password must be at least 8 characters long and contain at least one "
+        "uppercase letter, one lowercase letter, one number, and one special character"
+    )
+
+
 def test_question_answers_latest_answers_requires_authorization(client, override_db):
     response = client.get("/question-answers/latest-answers", params={"user_id": str(uuid4())})
 

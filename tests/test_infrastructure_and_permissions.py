@@ -232,7 +232,7 @@ def test_check_permissions_denies_invalid_context(monkeypatch):
         )
 
     assert exc.value.status_code == 403
-    assert exc.value.detail == "User does not have permission to access the institution"
+    assert exc.value.detail == "This profile do not have access to this content"
 
 
 def test_institutions_service_returns_uba_institution():

@@ -124,7 +124,7 @@ def test_users_controller_create_user_rejects_duplicate_nickname(monkeypatch):
         name="Pedro Vieira",
         email="pedro@example.com",
         nickname="pedrov",
-        password="secret123",
+        password="Secret123!",
     )
 
     async def _read(*args, **kwargs):
@@ -150,7 +150,7 @@ def test_users_controller_create_user_persists_unique_user(monkeypatch):
         name="Pedro Vieira",
         email="pedro@example.com",
         nickname="pedrov",
-        password="secret123",
+        password="Secret123!",
     )
     created_user = SimpleNamespace(id=uuid4())
 
@@ -174,6 +174,27 @@ def test_users_controller_create_user_persists_unique_user(monkeypatch):
     response = asyncio.run(UsersController.create_user(body, FakeAsyncSession()))
 
     assert response == {"data": created_user}
+
+
+def test_users_controller_create_user_rejects_weak_password():
+    body = UsersPost(
+        name="Pedro Vieira",
+        email="pedro@example.com",
+        nickname="pedrov",
+        password="secret123",
+    )
+
+    try:
+        asyncio.run(UsersController.create_user(body, FakeAsyncSession()))
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == (
+            "Password must be at least 8 characters long and contain at least "
+            "one uppercase letter, one lowercase letter, one number, and one "
+            "special character"
+        )
+    else:
+        assert False, "Expected weak password validation error"
 
 
 def test_ai_anatomy_controller_rejects_invalid_institution_id():

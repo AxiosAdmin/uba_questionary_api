@@ -130,3 +130,11 @@ CREATE TABLE IF NOT EXISTS question_feedbacks (
     CONSTRAINT question_feedbacks_pkey PRIMARY KEY (id),
     CONSTRAINT question_feedbacks_question_id_fkey FOREIGN KEY (question_id) REFERENCES questions (id)
 );
+
+CREATE TABLE IF NOT EXISTS user_feedback (
+    id UUID DEFAULT gen_random_uuid() NOT NULL,
+    user_id UUID NOT NULL,
+    text_feedback TEXT NOT NULL,
+    CONSTRAINT user_feedback_pkey PRIMARY KEY (id),
+    CONSTRAINT user_feedback_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id)
+);

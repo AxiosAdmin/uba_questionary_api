@@ -96,6 +96,9 @@ class Users(Base):
     subscriptions: Mapped[list["Subscriptions"]] = relationship(
         "Subscriptions", back_populates="user"
     )
+    user_feedback: Mapped[list["UserFeedback"]] = relationship(
+        "UserFeedback", back_populates="user"
+    )
     users_institutions: Mapped[list["UsersInstitutions"]] = relationship(
         "UsersInstitutions", back_populates="user"
     )
@@ -184,17 +187,35 @@ class Subscriptions(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, nullable=False, server_default=text("now()")
     )
-    stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text)
-    current_period_end: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     questions_generated_in_cycle: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
-    questions_generation_cycle_end: Mapped[Optional[datetime.datetime]] = (
-        mapped_column(DateTime)
-    )
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text)
+    current_period_end: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    questions_generation_cycle_end: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime
+    )
 
     user: Mapped["Users"] = relationship("Users", back_populates="subscriptions")
+
+
+class UserFeedback(Base):
+    __tablename__ = "user_feedback"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["user_id"], ["users.id"], name="user_feedback_user_id_fkey"
+        ),
+        PrimaryKeyConstraint("id", name="user_feedback_pkey"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    text_feedback: Mapped[str] = mapped_column(Text, nullable=False)
+
+    user: Mapped["Users"] = relationship("Users", back_populates="user_feedback")
 
 
 class UsersInstitutions(Base):
