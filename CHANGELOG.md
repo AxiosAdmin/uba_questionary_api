@@ -1,8 +1,7 @@
 ## v1.10.0
 
 - Added email sender module
-- Added Forgot Password and 
-- Reset Password route
+- Added Forgot Password and Reset Password route
 
 ## v1.9.0
 
