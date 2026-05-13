@@ -1,3 +1,9 @@
+## v1.9.0
+
+- Added user_feedback table
+- Added POST and  GET All routes for user_feedback table
+- Added a validation to the user creation for passwords to force the user to create a reliable password
+
 ## v1.8.1
 
 - Fixed answer questions GET route to send just questions that was answered by the user
