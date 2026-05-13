@@ -3,6 +3,7 @@ import json
 from types import SimpleNamespace
 from uuid import uuid4
 
+import jwt
 import pytest
 from fastapi import HTTPException
 
@@ -111,6 +112,153 @@ def test_auth_controller_login_returns_usage_for_regular_user(monkeypatch):
     assert token == "jwt-user"
     assert response["user"] is expected_user
     assert response["question_generation_usage"]["questions_used"] == 4
+
+
+def test_auth_controller_forgot_password_returns_generic_message(monkeypatch):
+    async def _request_password_reset(*args, **kwargs):
+        return "generated-token"
+
+    sent = {}
+
+    def _send_password_reset_email(recipient, token):
+        sent["recipient"] = recipient
+        sent["token"] = token
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.request_password_reset",
+        _request_password_reset,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.EmailService.send_password_reset_email",
+        _send_password_reset_email,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.settings",
+        SimpleNamespace(PASSWORD_RESET_INCLUDE_TOKEN_IN_RESPONSE=False),
+    )
+
+    response = asyncio.run(
+        AuthController.forgot_password("pedro@example.com", FakeAsyncSession())
+    )
+
+    assert response == {
+        "message": "If the email exists, password reset instructions have been generated."
+    }
+    assert sent == {"recipient": "pedro@example.com", "token": "generated-token"}
+
+
+def test_auth_controller_forgot_password_can_include_token_for_dev(monkeypatch):
+    async def _request_password_reset(*args, **kwargs):
+        return "generated-token"
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.request_password_reset",
+        _request_password_reset,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.EmailService.send_password_reset_email",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.settings",
+        SimpleNamespace(PASSWORD_RESET_INCLUDE_TOKEN_IN_RESPONSE=True),
+    )
+
+    response = asyncio.run(
+        AuthController.forgot_password("pedro@example.com", FakeAsyncSession())
+    )
+
+    assert response["reset_token"] == "generated-token"
+
+
+def test_auth_controller_forgot_password_skips_email_when_user_not_found(monkeypatch):
+    async def _request_password_reset(*args, **kwargs):
+        return None
+
+    called = {"sent": False}
+
+    def _send_password_reset_email(*args, **kwargs):
+        called["sent"] = True
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.request_password_reset",
+        _request_password_reset,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.EmailService.send_password_reset_email",
+        _send_password_reset_email,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.settings",
+        SimpleNamespace(PASSWORD_RESET_INCLUDE_TOKEN_IN_RESPONSE=False),
+    )
+
+    response = asyncio.run(
+        AuthController.forgot_password("missing@example.com", FakeAsyncSession())
+    )
+
+    assert response == {
+        "message": "If the email exists, password reset instructions have been generated."
+    }
+    assert called["sent"] is False
+
+
+def test_auth_controller_reset_password_returns_success(monkeypatch):
+    async def _reset_password(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("src.controllers.auth_controller.AuthService.reset_password", _reset_password)
+
+    response = asyncio.run(
+        AuthController.reset_password("token", "NovaSenha123!", FakeAsyncSession())
+    )
+
+    assert response == {"message": "Password updated successfully."}
+
+
+def test_auth_controller_reset_password_translates_expired_token(monkeypatch):
+    async def _reset_password(*args, **kwargs):
+        raise jwt.ExpiredSignatureError("expired")
+
+    monkeypatch.setattr("src.controllers.auth_controller.AuthService.reset_password", _reset_password)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            AuthController.reset_password("token", "NovaSenha123!", FakeAsyncSession())
+        )
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Password reset token expired"
+
+
+def test_auth_controller_reset_password_translates_invalid_token(monkeypatch):
+    async def _reset_password(*args, **kwargs):
+        raise jwt.InvalidTokenError("invalid")
+
+    monkeypatch.setattr("src.controllers.auth_controller.AuthService.reset_password", _reset_password)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            AuthController.reset_password("token", "NovaSenha123!", FakeAsyncSession())
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Invalid password reset token"
+
+
+def test_auth_controller_reset_password_translates_validation_errors(monkeypatch):
+    async def _reset_password(*args, **kwargs):
+        raise ValueError("Password must be strong")
+
+    monkeypatch.setattr("src.controllers.auth_controller.AuthService.reset_password", _reset_password)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            AuthController.reset_password("token", "weak", FakeAsyncSession())
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Password must be strong"
 
 
 def test_users_controller_create_user_rejects_duplicate_nickname(monkeypatch):

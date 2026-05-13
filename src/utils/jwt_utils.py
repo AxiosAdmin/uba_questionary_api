@@ -26,21 +26,23 @@ class JWTUtils:
         return payload
 
     @staticmethod
-    def encode_jwt(payload: dict) -> str:
+    def encode_jwt(payload: dict, expires_in_minutes: int | None = None) -> str:
         """
         Encode a payload into a JWT token.
 
         Args:
             payload: The data to encode in the token
+            expires_in_minutes: Optional expiration override for this token
 
         Returns:
             str: The encoded JWT token
         """
         now = datetime.now(timezone.utc)
+        expiration_minutes = expires_in_minutes or settings.JWT_EXPIRATION_MINUTES
         token_payload = {
             **payload,
             "iat": now,
-            "exp": now + timedelta(minutes=settings.JWT_EXPIRATION_MINUTES),
+            "exp": now + timedelta(minutes=expiration_minutes),
         }
         token = jwt.encode(
             token_payload, settings.JWT_SECRET_KEY, algorithm=settings.ALGORITHM

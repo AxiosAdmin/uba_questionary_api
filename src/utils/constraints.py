@@ -9,7 +9,11 @@ BYPASS_ROUTES = {
     "/stripe/generate",
     "/stripe/webhook/payment",
 }
-BYPASS_ROUTE_METHODS = {("POST", "/users")}
+BYPASS_ROUTE_METHODS = {
+    ("POST", "/users"),
+    ("POST", "/forgot-password"),
+    ("POST", "/reset-password"),
+}
 
 
 def should_bypass_auth(method: str, path: str) -> bool:

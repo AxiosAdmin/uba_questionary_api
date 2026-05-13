@@ -1,7 +1,10 @@
 """Authentication controller handling login requests and token generation."""
 
+import jwt
 from fastapi import HTTPException
 
+from src.configs.configs import settings
+from src.services.email_service import EmailService
 from src.services.auth_service import AuthService
 from src.services.subscription_service import SubscriptionService
 from src.utils.jwt_utils import JWTUtils
@@ -59,3 +62,39 @@ class AuthController:
 
         except ValueError as e:
             raise HTTPException(status_code=401, detail=str(e)) from e
+
+    @staticmethod
+    async def forgot_password(email: str, db):
+        """
+        Start the password reset flow.
+
+        Returns a generic success message regardless of whether the email exists,
+        preventing account enumeration.
+        """
+        token = await AuthService.request_password_reset(email, db)
+        if token is not None:
+            EmailService.send_password_reset_email(email, token)
+
+        response = {
+            "message": (
+                "If the email exists, password reset instructions have been generated."
+            )
+        }
+
+        if settings.PASSWORD_RESET_INCLUDE_TOKEN_IN_RESPONSE and token is not None:
+            response["reset_token"] = token
+
+        return response
+
+    @staticmethod
+    async def reset_password(token: str, new_password: str, db):
+        """Validate a reset token and update the stored password."""
+        try:
+            await AuthService.reset_password(token, new_password, db)
+            return {"message": "Password updated successfully."}
+        except jwt.ExpiredSignatureError as exc:
+            raise HTTPException(status_code=401, detail="Password reset token expired") from exc
+        except jwt.InvalidTokenError as exc:
+            raise HTTPException(status_code=400, detail="Invalid password reset token") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
