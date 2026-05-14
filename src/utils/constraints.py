@@ -3,6 +3,7 @@
 BYPASS_ROUTES = {
     "/openapi.json",
     "/docs",
+    "/redoc",
     "/login",
     "/healthy",
     "/institutions",

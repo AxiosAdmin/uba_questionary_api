@@ -19,7 +19,12 @@ from src.middleware.jwt_middleware import jwt_checker
 security = HTTPBearer(auto_error=False)
 institution_id = APIKeyHeader(name="x-institution-id", auto_error=False)
 
-app = FastAPI()
+app = FastAPI(
+    title="UBA Questionary API",
+    docs_url=None if settings.APP_ENV == "P" else "/docs",
+    redoc_url=None if settings.APP_ENV == "P" else "/redoc",
+    openapi_url=None if settings.APP_ENV == "P" else "/openapi.json",
+)
 
 app.middleware("http")(jwt_checker)
 
@@ -35,6 +40,7 @@ app.add_middleware(
 @app.get("/healthy")
 def healthy():
     """Healthy check route"""
+    print(settings.APP_ENV)
     return {"status": "Ok"}
 
 
