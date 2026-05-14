@@ -30,6 +30,18 @@ class Settings(BaseSettings):
     PAYMENT_CURRENCY: str
     CHECKOUT_REDIRECT_URL: str
 
+    PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES: int
+    PASSWORD_RESET_INCLUDE_TOKEN_IN_RESPONSE: bool
+    PASSWORD_RESET_URL: str
+
+    SMTP_ENABLED: bool
+    SMTP_HOST: str
+    SMTP_PORT: int
+    SMTP_USE_TLS: bool
+    SMTP_USE_SSL: bool
+    SMTP_FROM_EMAIL: str
+    SMTP_FROM_NAME: str
+
     FRONTEND_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",

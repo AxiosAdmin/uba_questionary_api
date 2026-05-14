@@ -31,8 +31,6 @@ class ProfileUpdate(BaseModel):
 class ProfilePost(ProfileBase):
     """Schema for creating a new profile."""
 
-    pass
-
 
 class ProfileGet(ProfileBase):
     """Schema for retrieving profile data with ID."""

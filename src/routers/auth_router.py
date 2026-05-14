@@ -5,10 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.controllers.auth_controller import AuthController
 from src.schemas.auth_schema import (
+    ForgotPasswordResponseSchema,
+    ForgotPasswordSchema,
     LoginSchema,
     LoginResponseSchema,
     LoginAdminResponseSchema,
     LoginUserResponseSchema,
+    ResetPasswordResponseSchema,
+    ResetPasswordSchema,
 )
 from src.configs.db_connection import get_db
 
@@ -35,3 +39,25 @@ async def login(body: LoginSchema, db: AsyncSession = Depends(get_db)):
     response, token = await AuthController.login(body.nickname, body.password, db)
     response["token"] = token
     return response
+
+
+@auth_router.post(
+    "/forgot-password",
+    response_model=ForgotPasswordResponseSchema,
+)
+async def forgot_password(
+    body: ForgotPasswordSchema, db: AsyncSession = Depends(get_db)
+):
+    """Start the password reset flow for a given email."""
+    return await AuthController.forgot_password(body.email, db)
+
+
+@auth_router.post(
+    "/reset-password",
+    response_model=ResetPasswordResponseSchema,
+)
+async def reset_password(
+    body: ResetPasswordSchema, db: AsyncSession = Depends(get_db)
+):
+    """Reset the user password with a valid token."""
+    return await AuthController.reset_password(body.token, body.new_password, db)

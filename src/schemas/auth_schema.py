@@ -28,6 +28,45 @@ class LoginSchema(BaseModel):
     password: str
 
 
+class ForgotPasswordSchema(BaseModel):
+    """Schema for requesting a password reset token."""
+
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"email": "email@email.com"}}
+    )
+
+    email: str
+
+
+class ResetPasswordSchema(BaseModel):
+    """Schema for resetting password using a temporary token."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "new_password": "NovaSenha123!",
+            }
+        }
+    )
+
+    token: str
+    new_password: str
+
+
+class ForgotPasswordResponseSchema(BaseModel):
+    """Generic response for password reset requests."""
+
+    message: str
+    reset_token: Optional[str] = None
+
+
+class ResetPasswordResponseSchema(BaseModel):
+    """Response for successful password reset."""
+
+    message: str
+
+
 class LoginResponseSchema(BaseModel):
     """Schema for login response with authenticated user data and JWT token."""
 

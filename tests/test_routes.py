@@ -14,6 +14,8 @@ def test_registered_route_matrix(app):
 
     assert ("GET", "/healthy") in registered
     assert ("POST", "/login") in registered
+    assert ("POST", "/forgot-password") in registered
+    assert ("POST", "/reset-password") in registered
     assert ("POST", "/users") in registered
     assert ("GET", "/question-answers/latest-answers") in registered
     assert ("POST", "/question-answers") in registered
@@ -65,6 +67,53 @@ def test_login_route_validates_required_fields(client, override_db):
     assert response.status_code == 422
 
 
+def test_forgot_password_route_returns_generic_message(client, override_db, monkeypatch):
+    async def _forgot_password(email, db):
+        assert email == "pedro@example.com"
+        return {
+            "message": "If the email exists, password reset instructions have been generated."
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthController.forgot_password",
+        _forgot_password,
+    )
+
+    response = client.post("/forgot-password", json={"email": "pedro@example.com"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": "If the email exists, password reset instructions have been generated.",
+        "reset_token": None,
+    }
+
+
+def test_reset_password_route_returns_success(client, override_db, monkeypatch):
+    async def _reset_password(token, new_password, db):
+        assert token == "reset-token"
+        assert new_password == "NovaSenha123!"
+        return {"message": "Password updated successfully."}
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthController.reset_password",
+        _reset_password,
+    )
+
+    response = client.post(
+        "/reset-password",
+        json={"token": "reset-token", "new_password": "NovaSenha123!"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "Password updated successfully."}
+
+
+def test_reset_password_route_validates_required_fields(client, override_db):
+    response = client.post("/reset-password", json={"token": "reset-token"})
+
+    assert response.status_code == 422
+
+
 def test_users_route_creates_user(client, override_db, monkeypatch):
     async def _create_user(body, db):
         return {
@@ -102,6 +151,24 @@ def test_users_route_validates_body(client, override_db):
     )
 
     assert response.status_code == 422
+
+
+def test_users_route_rejects_weak_password(client, override_db):
+    response = client.post(
+        "/users",
+        json={
+            "name": "Pedro Vieira",
+            "email": "pedro@example.com",
+            "nickname": "pedrov",
+            "password": "secret123",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Password must be at least 8 characters long and contain at least one "
+        "uppercase letter, one lowercase letter, one number, and one special character"
+    )
 
 
 def test_question_answers_latest_answers_requires_authorization(client, override_db):

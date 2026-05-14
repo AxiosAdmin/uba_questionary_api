@@ -9,5 +9,6 @@ PERMISSIONS = {
     "basic_uba_user": {
         "ai": ["POST"],
         "question-answers":["GET", "POST"],
+        "user-feedback": ["POST"],
     }
 }

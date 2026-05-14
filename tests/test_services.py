@@ -11,6 +11,7 @@ from src.models.models import Questions, Subscriptions
 from src.schemas.questions_schemas import OnlyQuestionsGetSchema
 from src.services.ai_anatomy_service import AIAnatomyService
 from src.services.auth_service import AuthService
+from src.services.email_service import EmailService
 from src.services.question_answers_service import QuestionAnswersService
 from src.services.questions_service import QuestionsService
 from src.services.stripe_service import StripeService
@@ -150,6 +151,170 @@ def test_auth_service_login_rejects_invalid_credentials():
         assert str(exc) == "Invalid nickname or password"
     else:
         assert False, "Expected invalid credentials error"
+
+
+def test_auth_service_request_password_reset_returns_token():
+    user = _build_user()
+    db = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[user])])
+
+    token = asyncio.run(AuthService.request_password_reset("pedro@example.com", db))
+    payload = AuthService.reset_password.__globals__["JWTUtils"].decode_jwt(token)
+
+    assert payload["sub"] == str(user.id)
+    assert payload["purpose"] == "password_reset"
+
+
+def test_auth_service_request_password_reset_returns_none_for_unknown_email():
+    user = _build_user()
+    db = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[user])])
+
+    token = asyncio.run(AuthService.request_password_reset("missing@example.com", db))
+
+    assert token is None
+
+
+def test_auth_service_reset_password_updates_encrypted_password():
+    user = _build_user()
+    db = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[user])])
+    token = AuthService.reset_password.__globals__["JWTUtils"].encode_jwt(
+        {"id": str(user.id), "sub": str(user.id), "purpose": "password_reset"}
+    )
+
+    asyncio.run(AuthService.reset_password(token, "NovaSenha123!", db))
+
+    assert AuthService.reset_password.__globals__["fernet_utils"].decrypt(user.password) == (
+        "NovaSenha123!"
+    )
+    assert user.updated_at is not None
+    assert db.committed is True
+
+
+def test_auth_service_reset_password_rejects_invalid_purpose():
+    user = _build_user()
+    db = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[user])])
+    token = AuthService.reset_password.__globals__["JWTUtils"].encode_jwt(
+        {"id": str(user.id), "sub": str(user.id), "purpose": "login"}
+    )
+
+    with pytest.raises(ValueError) as exc:
+        asyncio.run(AuthService.reset_password(token, "NovaSenha123!", db))
+
+    assert str(exc.value) == "Invalid password reset token"
+
+
+def test_auth_service_reset_password_rejects_weak_password():
+    user = _build_user()
+    db = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[user])])
+    token = AuthService.reset_password.__globals__["JWTUtils"].encode_jwt(
+        {"id": str(user.id), "sub": str(user.id), "purpose": "password_reset"}
+    )
+
+    with pytest.raises(ValueError) as exc:
+        asyncio.run(AuthService.reset_password(token, "weak", db))
+
+    assert "Password must be at least 8 characters long" in str(exc.value)
+
+
+def test_email_service_builds_password_reset_url(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            PASSWORD_RESET_URL="https://app.example.com/reset-password",
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+            PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES=30,
+        ),
+    )
+
+    message = EmailService._build_password_reset_message(
+        "pedro@example.com",
+        "reset-token",
+    )
+
+    assert message.get_content_type() == "text/html"
+    assert "link de redefinicao de senha" in message.get_content()
+    assert 'href="https://app.example.com/reset-password?token=reset-token"' in (
+        message.get_content()
+    )
+
+
+def test_email_service_uses_plain_token_when_reset_url_missing(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            PASSWORD_RESET_URL=None,
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+            PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES=30,
+        ),
+    )
+
+    message = EmailService._build_password_reset_message(
+        "pedro@example.com",
+        "reset-token",
+    )
+
+    assert message.get_content_type() == "text/html"
+    assert 'href="reset-token"' in message.get_content()
+    assert "link de redefinicao de senha" in message.get_content()
+
+
+def test_email_service_sends_message_with_tls_and_login(monkeypatch):
+    events = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout):
+            events.append(("connect", host, port, timeout))
+
+        def ehlo(self):
+            events.append("ehlo")
+
+        def starttls(self):
+            events.append("starttls")
+
+        def login(self, username, password):
+            events.append(("login", username, password))
+
+        def send_message(self, message):
+            events.append(("send_message", message["To"], message["Subject"]))
+
+        def quit(self):
+            events.append("quit")
+
+    monkeypatch.setattr("src.services.email_service.smtplib.SMTP", FakeSMTP)
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            SMTP_ENABLED=True,
+            SMTP_HOST="smtp.example.com",
+            SMTP_PORT=587,
+            SMTP_USERNAME="noreply@example.com",
+            SMTP_PASSWORD="secret",
+            SMTP_USE_TLS=True,
+            SMTP_USE_SSL=False,
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+            PASSWORD_RESET_URL="https://app.example.com/reset-password",
+            PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES=30,
+        ),
+    )
+
+    EmailService.send_password_reset_email("pedro@example.com", "reset-token")
+
+    assert ("connect", "smtp.example.com", 587, 30) in events
+    assert "starttls" in events
+    assert ("login", "noreply@example.com", "secret") in events
+    assert ("send_message", "pedro@example.com", "Redefinicao de senha") in events
+    assert "quit" in events
+
+
+def test_email_service_returns_without_delivery_when_disabled(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(SMTP_ENABLED=False),
+    )
+
+    EmailService.send_password_reset_email("pedro@example.com", "reset-token")
 
 
 def test_user_service_check_user_existance_rejects_invalid_uuid():
