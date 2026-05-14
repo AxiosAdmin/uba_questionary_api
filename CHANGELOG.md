@@ -1,3 +1,7 @@
+## v1.10.1
+
+- Added a ENV Variable to remove documentation routes
+
 ## v1.10.0
 
 - Added email sender module
