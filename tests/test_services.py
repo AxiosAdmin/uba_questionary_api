@@ -1033,7 +1033,8 @@ def test_stripe_service_generate_payment_checkout_builds_expected_payload(monkey
 
     assert response == {"url_session": "https://checkout.stripe.test"}
     assert captured["payload"]["mode"] == "payment"
-    assert captured["payload"]["currency"] == "brl"
+    assert captured["payload"]["adaptive_pricing"] == {"enabled": False}
+    assert captured["payload"]["line_items"] == [{"price": "price_test", "quantity": 1}]
     assert "payment_intent_data" in captured["payload"]
 
 
