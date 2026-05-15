@@ -21,7 +21,7 @@ class StripeService:
 
         stripe_session = stripe_client.v1.checkout.sessions.create(
             {
-                "mode": "subscription",
+                "mode": "payment",
                 "line_items": [{"price": settings.DEFAULT_PRICE_ID, "quantity": 1}],
                 "currency": settings.PAYMENT_CURRENCY,
                 "success_url": settings.CHECKOUT_REDIRECT_URL,
@@ -30,7 +30,7 @@ class StripeService:
                     "user_id": user_id_str,
                     "price_id": settings.DEFAULT_PRICE_ID,
                 },
-                "subscription_data": {
+                "payment_intent_data": {
                     "metadata": {
                         "user_id": user_id_str,
                         "price_id": settings.DEFAULT_PRICE_ID,
@@ -161,6 +161,19 @@ class StripeService:
         return result.scalars().first()
 
     @staticmethod
+    async def _user_has_active_subscription(session, user_id):
+        query = (
+            select(Subscriptions)
+            .where(
+                Subscriptions.user_id == user_id,
+                Subscriptions.status == "active",
+            )
+            .limit(1)
+        )
+        result = await session.execute(query)
+        return result.scalars().first() is not None
+
+    @staticmethod
     async def _upsert_subscription(
         session,
         user_id,
@@ -175,26 +188,31 @@ class StripeService:
         )
 
         if subscription:
+            previous_period_end = getattr(subscription, "current_period_end", None)
+            current_cycle_end = getattr(
+                subscription, "questions_generation_cycle_end", None
+            )
             period_changed = (
                 current_period_end is not None
-                and subscription.current_period_end != current_period_end
+                and previous_period_end != current_period_end
             )
+            subscription.stripe_subscription_id = stripe_subscription_id
             subscription.user_id = user_id
             subscription.status = status
-            subscription.price_id = price_id or subscription.price_id
+            subscription.price_id = price_id or getattr(
+                subscription, "price_id", None
+            )
             subscription.stripe_customer_id = (
-                stripe_customer_id or subscription.stripe_customer_id
+                stripe_customer_id
+                or getattr(subscription, "stripe_customer_id", None)
             )
             subscription.current_period_end = (
-                current_period_end or subscription.current_period_end
+                current_period_end if current_period_end is not None else previous_period_end
             )
             if period_changed:
                 subscription.questions_generated_in_cycle = 0
                 subscription.questions_generation_cycle_end = current_period_end
-            elif (
-                subscription.questions_generation_cycle_end is None
-                and subscription.current_period_end is not None
-            ):
+            elif current_cycle_end is None and subscription.current_period_end is not None:
                 subscription.questions_generation_cycle_end = (
                     subscription.current_period_end
                 )
@@ -259,7 +277,7 @@ class StripeService:
 
         if not institution or not profile:
             raise ValueError(
-                "The seed data for UBA institution/profile " \
+                "The seed data for UBA institution/profile "
                 "must exist before processing Stripe webhooks."
             )
 
@@ -275,18 +293,38 @@ class StripeService:
         return access_action
 
     @staticmethod
-    async def _sync_subscription_from_subscription_event(data, db, forced_status=None):
-        subscription_data = data["data"]["object"]
-        stripe_subscription_id = subscription_data.get("id")
+    async def _sync_user_access_for_user(session, user_id):
+        has_active_subscription = await StripeService._user_has_active_subscription(
+            session, user_id
+        )
+
+        normalized_status = "active" if has_active_subscription else "canceled"
+        return await StripeService._sync_user_access(
+            session, user_id, normalized_status
+        )
+
+    @staticmethod
+    async def _sync_checkout_session_purchase(data, db, normalized_status=None):
+        session_data = data["data"]["object"]
+        stripe_session_id = session_data.get("id")
+
+        if not stripe_session_id:
+            return {
+                "status": "ignored",
+                "reason": "checkout_session_not_found",
+                "event": data["type"],
+            }
 
         async with db as session:
             existing_subscription = await StripeService._get_subscription_by_stripe_id(
-                session, stripe_subscription_id
+                session, stripe_session_id
             )
 
-            raw_user_id = StripeService._extract_user_id_from_metadata(
-                subscription_data
-            ) or (existing_subscription.user_id if existing_subscription else None)
+            raw_user_id = (
+                StripeService._extract_user_id_from_metadata(session_data)
+                or session_data.get("client_reference_id")
+                or (existing_subscription.user_id if existing_subscription else None)
+            )
             user_id = StripeService._parse_uuid(raw_user_id)
 
             if not user_id:
@@ -296,30 +334,25 @@ class StripeService:
                     "event": data["type"],
                 }
 
-            normalized_status = (
-                forced_status
-                or StripeService._normalize_subscription_status(
-                    subscription_data.get("status")
+            resolved_status = normalized_status
+            if resolved_status is None:
+                resolved_status = (
+                    "active"
+                    if session_data.get("payment_status") == "paid"
+                    else "incomplete"
                 )
-            )
-
-            price_id = StripeService._extract_price_id(subscription_data)
-            current_period_end = StripeService._unix_to_datetime(
-                subscription_data.get("current_period_end")
-            )
-            stripe_customer_id = subscription_data.get("customer")
 
             subscription, operation = await StripeService._upsert_subscription(
                 session=session,
                 user_id=user_id,
-                stripe_subscription_id=stripe_subscription_id,
-                status=normalized_status,
-                price_id=price_id,
-                stripe_customer_id=stripe_customer_id,
-                current_period_end=current_period_end,
+                stripe_subscription_id=stripe_session_id,
+                status=resolved_status,
+                price_id=StripeService._extract_price_id(session_data),
+                stripe_customer_id=session_data.get("customer"),
+                current_period_end=None,
             )
-            access_action = await StripeService._sync_user_access(
-                session, user_id, normalized_status
+            access_action = await StripeService._sync_user_access_for_user(
+                session, user_id
             )
 
             await session.commit()
@@ -335,220 +368,80 @@ class StripeService:
 
     @staticmethod
     async def checkout_session_completed(data, db):
-        session_data = data["data"]["object"]
-        user_id = StripeService._parse_uuid(
-            StripeService._extract_user_id_from_metadata(session_data)
-            or session_data.get("client_reference_id")
+        return await StripeService._sync_checkout_session_purchase(data, db)
+
+    @staticmethod
+    async def checkout_session_async_payment_succeeded(data, db):
+        return await StripeService._sync_checkout_session_purchase(
+            data, db, normalized_status="active"
         )
-        stripe_subscription_id = session_data.get("subscription")
 
-        if not user_id:
-            return {
-                "status": "ignored",
-                "reason": "user_id_not_found",
-                "event": data["type"],
-            }
-
-        async with db as session:
-            access_action = "unchanged"
-            normalized_status = "incomplete"
-            subscription_action = "unchanged"
-
-            if stripe_subscription_id:
-                existing_subscription = (
-                    await StripeService._get_subscription_by_stripe_id(
-                        session, stripe_subscription_id
-                    )
-                )
-
-                if existing_subscription:
-                    normalized_status = existing_subscription.status
-
-                    if not existing_subscription.stripe_customer_id:
-                        existing_subscription.stripe_customer_id = session_data.get(
-                            "customer"
-                        )
-
-                    if not existing_subscription.price_id:
-                        existing_subscription.price_id = (
-                            StripeService._extract_price_id(session_data)
-                            or settings.DEFAULT_PRICE_ID
-                        )
-
-                    existing_subscription.updated_at = datetime.datetime.now(
-                        datetime.UTC
-                    ).replace(tzinfo=None)
-                    subscription_action = "updated"
-                    access_action = await StripeService._sync_user_access(
-                        session, user_id, normalized_status
-                    )
-                else:
-                    _, subscription_action = await StripeService._upsert_subscription(
-                        session=session,
-                        user_id=user_id,
-                        stripe_subscription_id=stripe_subscription_id,
-                        status="incomplete",
-                        price_id=StripeService._extract_price_id(session_data),
-                        stripe_customer_id=session_data.get("customer"),
-                        current_period_end=None,
-                    )
-
-            await session.commit()
-
-            return {
-                "status": "processed",
-                "event": data["type"],
-                "subscription_action": subscription_action,
-                "access_action": access_action,
-                "stripe_subscription_id": stripe_subscription_id,
-                "subscription_status": normalized_status,
-            }
+    @staticmethod
+    async def checkout_session_async_payment_failed(data, db):
+        return await StripeService._sync_checkout_session_purchase(
+            data, db, normalized_status="failed_payment"
+        )
 
     @staticmethod
     async def customer_subscription_created(data, db):
-        return await StripeService._sync_subscription_from_subscription_event(data, db)
+        return {
+            "status": "ignored",
+            "reason": "unsupported_event",
+            "event": data["type"],
+        }
 
     @staticmethod
     async def customer_subscription_updated(data, db):
-        return await StripeService._sync_subscription_from_subscription_event(data, db)
+        return {
+            "status": "ignored",
+            "reason": "unsupported_event",
+            "event": data["type"],
+        }
 
     @staticmethod
     async def customer_subscription_paused(data, db):
-        return await StripeService._sync_subscription_from_subscription_event(
-            data, db, forced_status="failed_payment"
-        )
+        return {
+            "status": "ignored",
+            "reason": "unsupported_event",
+            "event": data["type"],
+        }
 
     @staticmethod
     async def customer_subscription_resumed(data, db):
-        return await StripeService._sync_subscription_from_subscription_event(data, db)
+        return {
+            "status": "ignored",
+            "reason": "unsupported_event",
+            "event": data["type"],
+        }
 
     @staticmethod
     async def invoice_payment_succeeded(data, db):
-        invoice_data = data["data"]["object"]
-        stripe_subscription_id = invoice_data.get("subscription")
-
-        if not stripe_subscription_id:
-            return {
-                "status": "ignored",
-                "reason": "subscription_not_found",
-                "event": data["type"],
-            }
-
-        async with db as session:
-            existing_subscription = await StripeService._get_subscription_by_stripe_id(
-                session, stripe_subscription_id
-            )
-
-            raw_user_id = StripeService._extract_user_id_from_metadata(
-                invoice_data
-            ) or (existing_subscription.user_id if existing_subscription else None)
-            user_id = StripeService._parse_uuid(raw_user_id)
-
-            if not user_id:
-                return {
-                    "status": "ignored",
-                    "reason": "user_id_not_found",
-                    "event": data["type"],
-                }
-
-            current_period_end = None
-            lines = invoice_data.get("lines", {}).get("data", [])
-            if lines:
-                current_period_end = StripeService._unix_to_datetime(
-                    lines[0].get("period", {}).get("end")
-                )
-
-            subscription, operation = await StripeService._upsert_subscription(
-                session=session,
-                user_id=user_id,
-                stripe_subscription_id=stripe_subscription_id,
-                status="active",
-                price_id=StripeService._extract_price_id(invoice_data),
-                stripe_customer_id=invoice_data.get("customer"),
-                current_period_end=current_period_end,
-            )
-            access_action = await StripeService._sync_user_access(
-                session, user_id, "active"
-            )
-
-            await session.commit()
-
-            return {
-                "status": "processed",
-                "event": data["type"],
-                "subscription_action": operation,
-                "access_action": access_action,
-                "stripe_subscription_id": subscription.stripe_subscription_id,
-                "subscription_status": subscription.status,
-            }
+        return {
+            "status": "ignored",
+            "reason": "unsupported_event",
+            "event": data["type"],
+        }
 
     @staticmethod
     async def invoice_paid(data, db):
-        return await StripeService.invoice_payment_succeeded(data, db)
+        return {
+            "status": "ignored",
+            "reason": "unsupported_event",
+            "event": data["type"],
+        }
 
     @staticmethod
     async def invoice_payment_failed(data, db):
-        invoice_data = data["data"]["object"]
-        stripe_subscription_id = invoice_data.get("subscription")
-
-        if not stripe_subscription_id:
-            return {
-                "status": "ignored",
-                "reason": "subscription_not_found",
-                "event": data["type"],
-            }
-
-        async with db as session:
-            existing_subscription = await StripeService._get_subscription_by_stripe_id(
-                session, stripe_subscription_id
-            )
-
-            raw_user_id = StripeService._extract_user_id_from_metadata(
-                invoice_data
-            ) or (existing_subscription.user_id if existing_subscription else None)
-            user_id = StripeService._parse_uuid(raw_user_id)
-
-            if not user_id:
-                return {
-                    "status": "ignored",
-                    "reason": "user_id_not_found",
-                    "event": data["type"],
-                }
-
-            normalized_status = "failed_payment"
-            if invoice_data.get("billing_reason") == "subscription_create":
-                normalized_status = "incomplete"
-
-            subscription, operation = await StripeService._upsert_subscription(
-                session=session,
-                user_id=user_id,
-                stripe_subscription_id=stripe_subscription_id,
-                status=normalized_status,
-                price_id=StripeService._extract_price_id(invoice_data),
-                stripe_customer_id=invoice_data.get("customer"),
-                current_period_end=(
-                    existing_subscription.current_period_end
-                    if existing_subscription
-                    else None
-                ),
-            )
-            access_action = await StripeService._sync_user_access(
-                session, user_id, normalized_status
-            )
-
-            await session.commit()
-
-            return {
-                "status": "processed",
-                "event": data["type"],
-                "subscription_action": operation,
-                "access_action": access_action,
-                "stripe_subscription_id": subscription.stripe_subscription_id,
-                "subscription_status": subscription.status,
-            }
+        return {
+            "status": "ignored",
+            "reason": "unsupported_event",
+            "event": data["type"],
+        }
 
     @staticmethod
     async def customer_subscription_deleted(data, db):
-        return await StripeService._sync_subscription_from_subscription_event(
-            data, db, forced_status="canceled"
-        )
+        return {
+            "status": "ignored",
+            "reason": "unsupported_event",
+            "event": data["type"],
+        }

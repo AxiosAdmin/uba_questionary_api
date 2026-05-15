@@ -7,7 +7,7 @@ from src.schemas.users_schemas import UsersNoPasswordResponse
 
 
 class QuestionGenerationUsageSchema(BaseModel):
-    """Schema for monthly question generation usage."""
+    """Schema for purchased question package usage."""
 
     questions_used: int
     questions_limit: Optional[int] = None

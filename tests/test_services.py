@@ -259,6 +259,26 @@ def test_email_service_uses_plain_token_when_reset_url_missing(monkeypatch):
     assert "link de redefinicao de senha" in message.get_content()
 
 
+def test_email_service_build_password_reset_message_requires_from_email(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            PASSWORD_RESET_URL="https://app.example.com/reset-password",
+            SMTP_FROM_EMAIL=None,
+            SMTP_FROM_NAME="UBA Questionary",
+            PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES=30,
+        ),
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        EmailService._build_password_reset_message(
+            "pedro@example.com",
+            "reset-token",
+        )
+
+    assert str(exc.value) == "SMTP_FROM_EMAIL must be configured when SMTP is enabled."
+
+
 def test_email_service_sends_message_with_tls_and_login(monkeypatch):
     events = []
 
@@ -315,6 +335,73 @@ def test_email_service_returns_without_delivery_when_disabled(monkeypatch):
     )
 
     EmailService.send_password_reset_email("pedro@example.com", "reset-token")
+
+
+def test_email_service_requires_host_and_from_email_when_enabled(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            SMTP_ENABLED=True,
+            SMTP_HOST=None,
+            SMTP_FROM_EMAIL=None,
+        ),
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        EmailService.send_password_reset_email("pedro@example.com", "reset-token")
+
+    assert str(exc.value) == (
+        "SMTP is enabled but SMTP_HOST/SMTP_FROM_EMAIL are not fully configured."
+    )
+
+
+def test_email_service_wraps_delivery_errors(monkeypatch):
+    events = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout):
+            events.append(("connect", host, port, timeout))
+
+        def ehlo(self):
+            events.append("ehlo")
+
+        def starttls(self):
+            events.append("starttls")
+
+        def login(self, username, password):
+            events.append(("login", username, password))
+
+        def send_message(self, message):
+            events.append(("send_message", message["To"]))
+            raise ValueError("smtp failure")
+
+        def quit(self):
+            events.append("quit")
+
+    monkeypatch.setattr("src.services.email_service.smtplib.SMTP", FakeSMTP)
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            SMTP_ENABLED=True,
+            SMTP_HOST="smtp.example.com",
+            SMTP_PORT=587,
+            SMTP_USERNAME="noreply@example.com",
+            SMTP_PASSWORD="secret",
+            SMTP_USE_TLS=True,
+            SMTP_USE_SSL=False,
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+            PASSWORD_RESET_URL="https://app.example.com/reset-password",
+            PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES=30,
+        ),
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        EmailService.send_password_reset_email("pedro@example.com", "reset-token")
+
+    assert str(exc.value) == "Unable to send password reset email."
+    assert ("send_message", "pedro@example.com") in events
+    assert "quit" in events
 
 
 def test_user_service_check_user_existance_rejects_invalid_uuid():
@@ -470,7 +557,7 @@ def test_subscription_service_get_generation_context_rejects_missing_subscriptio
         )
 
     assert exc.value.status_code == 403
-    assert exc.value.detail == "Active subscription required."
+    assert exc.value.detail == "Active question package required."
 
 
 def test_subscription_service_get_generation_context_returns_membership_and_subscription(sample_ids):
@@ -504,7 +591,10 @@ def test_subscription_service_validate_generation_limit_rejects_when_reaching_li
         )
 
     assert exc.value.status_code == 403
-    assert exc.value.detail == "Monthly question generation limit reached for this profile."
+    assert (
+        exc.value.detail
+        == "Question package exhausted. Buy a new package to continue."
+    )
 
 
 def test_subscription_service_build_usage_summary_handles_empty_subscription():
@@ -614,6 +704,76 @@ def test_subscription_service_create_question_and_consume_quota(sample_ids, monk
     assert usage["questions_remaining"] == 3
 
 
+def test_subscription_service_create_question_and_consume_quota_cancels_exhausted_package(
+    sample_ids, monkeypatch
+):
+    subscription = Subscriptions(
+        id=sample_ids.subscription_id,
+        user_id=sample_ids.user_id,
+        stripe_subscription_id="cs_123",
+        status="active",
+        price_id="price_test",
+        current_period_end=None,
+        questions_generated_in_cycle=4,
+        questions_generation_cycle_end=None,
+        created_at=datetime.now(),
+        updated_at=None,
+    )
+    user_institution = SimpleNamespace(
+        profile=SimpleNamespace(questions_create_limit=5)
+    )
+    db = FakeAsyncSession()
+    calls = []
+
+    async def _context(*args, **kwargs):
+        return user_institution, subscription
+
+    async def _sync_access(*args, **kwargs):
+        calls.append("sync")
+        return "deleted"
+
+    monkeypatch.setattr(
+        SubscriptionService, "_get_generation_context", staticmethod(_context)
+    )
+    monkeypatch.setattr(
+        "src.services.subscription_service.StripeService._sync_user_access_for_user",
+        _sync_access,
+    )
+
+    _, usage = asyncio.run(
+        SubscriptionService.create_question_and_consume_quota(
+            sample_ids.user_id,
+            sample_ids.institution_id,
+            {
+                "id": uuid4(),
+                "institution_id": sample_ids.institution_id,
+                "topic": "Neuroanatomy",
+                "subtopic": "cerebelo",
+                "subtopic_description": "estrutura do cerebelo",
+                "diversity_mode": "relationship",
+                "question": "Pergunta",
+                "answer_a": "A",
+                "answer_b": "B",
+                "answer_c": "C",
+                "answer_d": "D",
+                "explanation_a": "EA",
+                "explanation_b": "EB",
+                "explanation_c": "EC",
+                "explanation_d": "ED",
+                "correct_answer": "A",
+                "answer_e": None,
+                "explanation_e": None,
+            },
+            db,
+        )
+    )
+
+    assert subscription.status == "canceled"
+    assert usage["questions_remaining"] == 0
+    assert usage["subscription_status"] == "canceled"
+    assert calls == ["sync"]
+
+
 def test_subscription_service_get_question_generation_usage_without_institution(sample_ids):
     cycle_end = datetime.now() + timedelta(days=30)
     subscription = SimpleNamespace(
@@ -678,6 +838,65 @@ def test_subscription_service_get_question_generation_usage_with_profile_limit(s
 
     assert response["questions_limit"] == 5
     assert response["questions_remaining"] == 3
+
+
+def test_subscription_service_get_question_generation_usage_falls_back_to_latest_subscription(
+    sample_ids,
+):
+    cycle_end = datetime.now() + timedelta(days=30)
+    canceled_subscription = SimpleNamespace(
+        questions_generated_in_cycle=4,
+        questions_generation_cycle_end=cycle_end,
+        current_period_end=cycle_end,
+        status="canceled",
+        created_at=datetime.now(),
+    )
+    db = FakeAsyncSession(
+        execute_results=[
+            FakeExecuteResult(scalars_items=[]),
+            FakeExecuteResult(scalars_items=[canceled_subscription]),
+        ]
+    )
+
+    response = asyncio.run(
+        SubscriptionService.get_question_generation_usage(sample_ids.user_id, None, db)
+    )
+
+    assert response["questions_used"] == 4
+    assert response["questions_limit"] is None
+    assert response["subscription_status"] == "canceled"
+
+
+def test_subscription_service_handle_exhausted_subscription_ignores_missing_limit(
+    sample_ids, monkeypatch
+):
+    subscription = SimpleNamespace(
+        questions_generated_in_cycle=10,
+        status="active",
+        updated_at=None,
+    )
+    calls = []
+
+    async def _sync_access(*args, **kwargs):
+        calls.append("sync")
+        return "deleted"
+
+    monkeypatch.setattr(
+        "src.services.subscription_service.StripeService._sync_user_access_for_user",
+        _sync_access,
+    )
+
+    asyncio.run(
+        SubscriptionService._handle_exhausted_subscription(
+            subscription=subscription,
+            questions_limit=None,
+            user_id=sample_ids.user_id,
+            db=FakeAsyncSession(),
+        )
+    )
+
+    assert subscription.status == "active"
+    assert calls == []
 
 
 def test_subscription_service_create_question_rolls_back_on_commit_error(sample_ids, monkeypatch):
@@ -813,8 +1032,9 @@ def test_stripe_service_generate_payment_checkout_builds_expected_payload(monkey
     response = StripeService.generate_payment_checkout(uuid4())
 
     assert response == {"url_session": "https://checkout.stripe.test"}
-    assert captured["payload"]["mode"] == "subscription"
+    assert captured["payload"]["mode"] == "payment"
     assert captured["payload"]["currency"] == "brl"
+    assert "payment_intent_data" in captured["payload"]
 
 
 def test_stripe_service_get_uba_context_returns_institution_and_profile():
@@ -1050,6 +1270,18 @@ def test_stripe_service_revoke_user_access_deletes_membership(monkeypatch):
     assert db.deleted == [membership]
 
 
+def test_stripe_service_user_has_active_subscription(monkeypatch):
+    db = FakeAsyncSession(
+        execute_results=[FakeExecuteResult(scalars_items=[SimpleNamespace(id=uuid4())])]
+    )
+
+    response = asyncio.run(
+        StripeService._user_has_active_subscription(db, uuid4())
+    )
+
+    assert response is True
+
+
 def test_stripe_service_sync_user_access_requires_seed_data(monkeypatch):
     async def _context(*args, **kwargs):
         return None, None
@@ -1100,7 +1332,28 @@ def test_stripe_service_sync_user_access_revokes_inactive_access(monkeypatch):
     assert response == "deleted"
 
 
-def test_stripe_service_sync_subscription_from_event_ignores_missing_user(monkeypatch):
+def test_stripe_service_sync_user_access_for_user_grants_when_active_subscription_exists(
+    monkeypatch,
+):
+    async def _has_active(*args, **kwargs):
+        return True
+
+    async def _sync(*args, **kwargs):
+        return "created"
+
+    monkeypatch.setattr(
+        StripeService, "_user_has_active_subscription", staticmethod(_has_active)
+    )
+    monkeypatch.setattr(StripeService, "_sync_user_access", staticmethod(_sync))
+
+    response = asyncio.run(
+        StripeService._sync_user_access_for_user(FakeAsyncSession(), uuid4())
+    )
+
+    assert response == "created"
+
+
+def test_stripe_service_sync_checkout_session_purchase_ignores_missing_user(monkeypatch):
     existing = None
 
     async def _existing(*args, **kwargs):
@@ -1111,8 +1364,8 @@ def test_stripe_service_sync_subscription_from_event_ignores_missing_user(monkey
     )
 
     response = asyncio.run(
-        StripeService._sync_subscription_from_subscription_event(
-            {"type": "customer.subscription.created", "data": {"object": {"id": "sub_123"}}},
+        StripeService._sync_checkout_session_purchase(
+            {"type": "checkout.session.completed", "data": {"object": {"id": "cs_123"}}},
             FakeAsyncSession(),
         )
     )
@@ -1120,12 +1373,12 @@ def test_stripe_service_sync_subscription_from_event_ignores_missing_user(monkey
     assert response == {
         "status": "ignored",
         "reason": "user_id_not_found",
-        "event": "customer.subscription.created",
+        "event": "checkout.session.completed",
     }
 
 
-def test_stripe_service_sync_subscription_from_event_processes_payload(monkeypatch):
-    subscription = SimpleNamespace(stripe_subscription_id="sub_123", status="active")
+def test_stripe_service_sync_checkout_session_purchase_processes_payload(monkeypatch):
+    subscription = SimpleNamespace(stripe_subscription_id="cs_123", status="active")
     db = FakeAsyncSession()
 
     async def _existing(*args, **kwargs):
@@ -1144,25 +1397,24 @@ def test_stripe_service_sync_subscription_from_event_processes_payload(monkeypat
         StripeService, "_upsert_subscription", staticmethod(_upsert_subscription)
     )
     monkeypatch.setattr(
-        StripeService, "_sync_user_access", staticmethod(_sync_access)
+        StripeService, "_sync_user_access_for_user", staticmethod(_sync_access)
     )
 
     response = asyncio.run(
-        StripeService._sync_subscription_from_subscription_event(
+        StripeService._sync_checkout_session_purchase(
             {
-                "type": "customer.subscription.updated",
+                "type": "checkout.session.completed",
                 "data": {
                     "object": {
-                        "id": "sub_123",
-                        "status": "active",
+                        "id": "cs_123",
+                        "payment_status": "paid",
                         "metadata": {"user_id": str(uuid4()), "price_id": "price_test"},
                         "customer": "cus_123",
-                        "current_period_end": 1_700_000_000,
                     }
                 },
             },
             db,
-            forced_status=None,
+            normalized_status=None,
         )
     )
 
@@ -1181,7 +1433,7 @@ def test_stripe_service_checkout_session_completed_ignores_missing_user():
 
     assert response == {
         "status": "ignored",
-        "reason": "user_id_not_found",
+        "reason": "checkout_session_not_found",
         "event": "checkout.session.completed",
     }
 
@@ -1204,7 +1456,7 @@ def test_stripe_service_checkout_session_completed_updates_existing_subscription
         StripeService, "_get_subscription_by_stripe_id", staticmethod(_existing)
     )
     monkeypatch.setattr(
-        StripeService, "_sync_user_access", staticmethod(_sync_access)
+        StripeService, "_sync_user_access_for_user", staticmethod(_sync_access)
     )
 
     response = asyncio.run(
@@ -1213,9 +1465,10 @@ def test_stripe_service_checkout_session_completed_updates_existing_subscription
                 "type": "checkout.session.completed",
                 "data": {
                     "object": {
+                        "id": "cs_123",
                         "client_reference_id": str(uuid4()),
-                        "subscription": "sub_123",
                         "customer": "cus_123",
+                        "payment_status": "paid",
                         "metadata": {"price_id": "price_test", "user_id": str(uuid4())},
                     }
                 },
@@ -1234,13 +1487,19 @@ def test_stripe_service_checkout_session_completed_creates_subscription(monkeypa
         return None
 
     async def _upsert_subscription(**kwargs):
-        return SimpleNamespace(stripe_subscription_id="sub_123"), "created"
+        return SimpleNamespace(stripe_subscription_id="cs_123", status="active"), "created"
+
+    async def _sync_access(*args, **kwargs):
+        return "created"
 
     monkeypatch.setattr(
         StripeService, "_get_subscription_by_stripe_id", staticmethod(_existing)
     )
     monkeypatch.setattr(
         StripeService, "_upsert_subscription", staticmethod(_upsert_subscription)
+    )
+    monkeypatch.setattr(
+        StripeService, "_sync_user_access_for_user", staticmethod(_sync_access)
     )
 
     response = asyncio.run(
@@ -1249,9 +1508,10 @@ def test_stripe_service_checkout_session_completed_creates_subscription(monkeypa
                 "type": "checkout.session.completed",
                 "data": {
                     "object": {
+                        "id": "cs_123",
                         "client_reference_id": str(uuid4()),
-                        "subscription": "sub_123",
                         "customer": "cus_123",
+                        "payment_status": "paid",
                     }
                 },
             },
@@ -1260,284 +1520,54 @@ def test_stripe_service_checkout_session_completed_creates_subscription(monkeypa
     )
 
     assert response["subscription_action"] == "created"
-    assert response["subscription_status"] == "incomplete"
-
-
-def test_stripe_service_subscription_event_wrappers_delegate(monkeypatch):
-    calls = []
-
-    async def _sync(data, db, forced_status=None):
-        calls.append(forced_status)
-        return {"forced_status": forced_status}
-
-    monkeypatch.setattr(
-        StripeService, "_sync_subscription_from_subscription_event", staticmethod(_sync)
-    )
-
-    created = asyncio.run(StripeService.customer_subscription_created({}, FakeAsyncSession()))
-    updated = asyncio.run(StripeService.customer_subscription_updated({}, FakeAsyncSession()))
-    paused = asyncio.run(StripeService.customer_subscription_paused({}, FakeAsyncSession()))
-    resumed = asyncio.run(StripeService.customer_subscription_resumed({}, FakeAsyncSession()))
-    deleted = asyncio.run(StripeService.customer_subscription_deleted({}, FakeAsyncSession()))
-
-    assert created == {"forced_status": None}
-    assert updated == {"forced_status": None}
-    assert paused == {"forced_status": "failed_payment"}
-    assert resumed == {"forced_status": None}
-    assert deleted == {"forced_status": "canceled"}
-    assert calls == [None, None, "failed_payment", None, "canceled"]
-
-
-def test_stripe_service_invoice_payment_succeeded_processes_event(monkeypatch):
-    subscription = SimpleNamespace(
-        stripe_subscription_id="sub_123",
-        status="active",
-    )
-    db = FakeAsyncSession()
-    user_id = uuid4()
-
-    async def _get_subscription(*args, **kwargs):
-        return subscription
-
-    async def _upsert_subscription(**kwargs):
-        return subscription, "updated"
-
-    async def _sync_user_access(*args, **kwargs):
-        return "created"
-
-    monkeypatch.setattr(
-        StripeService, "_get_subscription_by_stripe_id", staticmethod(_get_subscription)
-    )
-    monkeypatch.setattr(
-        StripeService, "_upsert_subscription", staticmethod(_upsert_subscription)
-    )
-    monkeypatch.setattr(
-        StripeService, "_sync_user_access", staticmethod(_sync_user_access)
-    )
-
-    response = asyncio.run(
-        StripeService.invoice_payment_succeeded(
-            {
-                "type": "invoice.payment_succeeded",
-                "data": {
-                    "object": {
-                        "subscription": "sub_123",
-                        "customer": "cus_123",
-                        "metadata": {"user_id": str(user_id), "price_id": "price_test"},
-                        "lines": {"data": [{"period": {"end": 1_700_000_000}}]},
-                    }
-                },
-            },
-            db,
-        )
-    )
-
-    assert response["status"] == "processed"
-    assert response["subscription_action"] == "updated"
-    assert response["access_action"] == "created"
     assert response["subscription_status"] == "active"
 
 
-def test_stripe_service_invoice_payment_succeeded_ignores_missing_subscription():
-    response = asyncio.run(
-        StripeService.invoice_payment_succeeded(
-            {"type": "invoice.payment_succeeded", "data": {"object": {}}},
-            FakeAsyncSession(),
+def test_stripe_service_checkout_session_async_wrappers_delegate(monkeypatch):
+    calls = []
+
+    async def _sync(data, db, normalized_status=None):
+        calls.append(normalized_status)
+        return {"normalized_status": normalized_status}
+
+    monkeypatch.setattr(
+        StripeService, "_sync_checkout_session_purchase", staticmethod(_sync)
+    )
+
+    succeeded = asyncio.run(
+        StripeService.checkout_session_async_payment_succeeded({}, FakeAsyncSession())
+    )
+    failed = asyncio.run(
+        StripeService.checkout_session_async_payment_failed({}, FakeAsyncSession())
+    )
+
+    assert succeeded == {"normalized_status": "active"}
+    assert failed == {"normalized_status": "failed_payment"}
+    assert calls == ["active", "failed_payment"]
+
+
+def test_stripe_service_unsupported_subscription_and_invoice_events_are_ignored():
+    events = [
+        ("customer.subscription.created", StripeService.customer_subscription_created),
+        ("customer.subscription.updated", StripeService.customer_subscription_updated),
+        ("customer.subscription.paused", StripeService.customer_subscription_paused),
+        ("customer.subscription.resumed", StripeService.customer_subscription_resumed),
+        ("customer.subscription.deleted", StripeService.customer_subscription_deleted),
+        ("invoice.paid", StripeService.invoice_paid),
+        ("invoice.payment_succeeded", StripeService.invoice_payment_succeeded),
+        ("invoice.payment_failed", StripeService.invoice_payment_failed),
+    ]
+
+    for event_name, handler in events:
+        response = asyncio.run(
+            handler({"type": event_name, "data": {"object": {}}}, FakeAsyncSession())
         )
-    )
 
-    assert response == {
-        "status": "ignored",
-        "reason": "subscription_not_found",
-        "event": "invoice.payment_succeeded",
-    }
-
-
-def test_stripe_service_invoice_payment_succeeded_ignores_missing_user(monkeypatch):
-    async def _existing(*args, **kwargs):
-        return None
-
-    monkeypatch.setattr(
-        StripeService, "_get_subscription_by_stripe_id", staticmethod(_existing)
-    )
-
-    response = asyncio.run(
-        StripeService.invoice_payment_succeeded(
-            {
-                "type": "invoice.payment_succeeded",
-                "data": {"object": {"subscription": "sub_123"}},
-            },
-            FakeAsyncSession(),
-        )
-    )
-
-    assert response == {
-        "status": "ignored",
-        "reason": "user_id_not_found",
-        "event": "invoice.payment_succeeded",
-    }
-
-
-def test_stripe_service_invoice_paid_delegates(monkeypatch):
-    async def _invoice_payment_succeeded(data, db):
-        return {"delegated": True}
-
-    monkeypatch.setattr(
-        StripeService, "invoice_payment_succeeded", staticmethod(_invoice_payment_succeeded)
-    )
-
-    response = asyncio.run(StripeService.invoice_paid({}, FakeAsyncSession()))
-
-    assert response == {"delegated": True}
-
-
-def test_stripe_service_invoice_payment_failed_marks_subscription_create_as_incomplete(monkeypatch):
-    existing_subscription = SimpleNamespace(
-        current_period_end=datetime.now() + timedelta(days=30),
-        user_id=uuid4(),
-    )
-    created_subscription = SimpleNamespace(
-        stripe_subscription_id="sub_123",
-        status="incomplete",
-    )
-    db = FakeAsyncSession()
-
-    async def _get_subscription(*args, **kwargs):
-        return existing_subscription
-
-    async def _upsert_subscription(**kwargs):
-        assert kwargs["status"] == "incomplete"
-        return created_subscription, "updated"
-
-    async def _sync_user_access(*args, **kwargs):
-        return "unchanged"
-
-    monkeypatch.setattr(
-        StripeService, "_get_subscription_by_stripe_id", staticmethod(_get_subscription)
-    )
-    monkeypatch.setattr(
-        StripeService, "_upsert_subscription", staticmethod(_upsert_subscription)
-    )
-    monkeypatch.setattr(
-        StripeService, "_sync_user_access", staticmethod(_sync_user_access)
-    )
-
-    response = asyncio.run(
-        StripeService.invoice_payment_failed(
-            {
-                "type": "invoice.payment_failed",
-                "data": {
-                    "object": {
-                        "subscription": "sub_123",
-                        "customer": "cus_123",
-                        "billing_reason": "subscription_create",
-                        "metadata": {
-                            "user_id": str(existing_subscription.user_id),
-                            "price_id": "price_test",
-                        },
-                    }
-                },
-            },
-            db,
-        )
-    )
-
-    assert response["status"] == "processed"
-    assert response["subscription_status"] == "incomplete"
-
-
-def test_stripe_service_invoice_payment_failed_ignores_missing_subscription():
-    response = asyncio.run(
-        StripeService.invoice_payment_failed(
-            {"type": "invoice.payment_failed", "data": {"object": {}}},
-            FakeAsyncSession(),
-        )
-    )
-
-    assert response == {
-        "status": "ignored",
-        "reason": "subscription_not_found",
-        "event": "invoice.payment_failed",
-    }
-
-
-def test_stripe_service_invoice_payment_failed_ignores_missing_user(monkeypatch):
-    async def _existing(*args, **kwargs):
-        return None
-
-    monkeypatch.setattr(
-        StripeService, "_get_subscription_by_stripe_id", staticmethod(_existing)
-    )
-
-    response = asyncio.run(
-        StripeService.invoice_payment_failed(
-            {
-                "type": "invoice.payment_failed",
-                "data": {"object": {"subscription": "sub_123"}},
-            },
-            FakeAsyncSession(),
-        )
-    )
-
-    assert response == {
-        "status": "ignored",
-        "reason": "user_id_not_found",
-        "event": "invoice.payment_failed",
-    }
-
-
-def test_stripe_service_invoice_payment_failed_processes_failed_payment(monkeypatch):
-    existing_subscription = SimpleNamespace(
-        current_period_end=datetime.now() + timedelta(days=30),
-        user_id=uuid4(),
-    )
-    created_subscription = SimpleNamespace(
-        stripe_subscription_id="sub_123",
-        status="failed_payment",
-    )
-
-    async def _get_subscription(*args, **kwargs):
-        return existing_subscription
-
-    async def _upsert_subscription(**kwargs):
-        assert kwargs["status"] == "failed_payment"
-        return created_subscription, "updated"
-
-    async def _sync_user_access(*args, **kwargs):
-        return "deleted"
-
-    monkeypatch.setattr(
-        StripeService, "_get_subscription_by_stripe_id", staticmethod(_get_subscription)
-    )
-    monkeypatch.setattr(
-        StripeService, "_upsert_subscription", staticmethod(_upsert_subscription)
-    )
-    monkeypatch.setattr(
-        StripeService, "_sync_user_access", staticmethod(_sync_user_access)
-    )
-
-    response = asyncio.run(
-        StripeService.invoice_payment_failed(
-            {
-                "type": "invoice.payment_failed",
-                "data": {
-                    "object": {
-                        "subscription": "sub_123",
-                        "customer": "cus_123",
-                        "billing_reason": "manual",
-                        "metadata": {
-                            "user_id": str(existing_subscription.user_id),
-                            "price_id": "price_test",
-                        },
-                    }
-                },
-            },
-            FakeAsyncSession(),
-        )
-    )
-
-    assert response["status"] == "processed"
-    assert response["subscription_status"] == "failed_payment"
+        assert response == {
+            "status": "ignored",
+            "reason": "unsupported_event",
+            "event": event_name,
+        }
 
 
 def test_ai_anatomy_service_generate_response_formats_prompt(monkeypatch):
@@ -1598,9 +1628,17 @@ def test_stripe_service_parse_uuid_returns_uuid(sample_ids):
     assert isinstance(StripeService._parse_uuid(str(sample_ids.user_id)), UUID)
 
 
+def test_stripe_service_parse_uuid_returns_uuid_instance(sample_ids):
+    assert StripeService._parse_uuid(sample_ids.user_id) == sample_ids.user_id
+
+
 def test_stripe_service_parse_uuid_returns_none_for_invalid_value():
     assert StripeService._parse_uuid("invalid") is None
 
 
 def test_stripe_service_unix_to_datetime_handles_none():
     assert StripeService._unix_to_datetime(None) is None
+
+
+def test_stripe_service_unix_to_datetime_converts_timestamp():
+    assert StripeService._unix_to_datetime(1) == datetime(1970, 1, 1, 0, 0, 1)

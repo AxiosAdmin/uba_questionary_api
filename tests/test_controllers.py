@@ -519,35 +519,39 @@ def test_stripe_controller_generate_payment_checkout_returns_404_when_user_missi
 
 
 def test_stripe_controller_webhook_dispatches_to_expected_service(monkeypatch):
-    async def _invoice_paid(payload, db):
+    async def _async_payment_succeeded(payload, db):
         return {"status": "processed", "event": payload["type"]}
 
     monkeypatch.setattr(
-        "src.controllers.stripe_controller.StripeService.invoice_paid",
-        _invoice_paid,
+        "src.controllers.stripe_controller.StripeService.checkout_session_async_payment_succeeded",
+        _async_payment_succeeded,
     )
 
     response = asyncio.run(
         StripeController.payment_response_webhook(
-            {"type": "invoice.paid", "data": {"object": {}}},
+            {"type": "checkout.session.async_payment_succeeded", "data": {"object": {}}},
             FakeAsyncSession(),
         )
     )
 
-    assert response == {"status": "processed", "event": "invoice.paid"}
+    assert response == {
+        "status": "processed",
+        "event": "checkout.session.async_payment_succeeded",
+    }
 
 
 @pytest.mark.parametrize(
     ("event_type", "service_name"),
     [
         ("checkout.session.completed", "checkout_session_completed"),
-        ("customer.subscription.created", "customer_subscription_created"),
-        ("customer.subscription.updated", "customer_subscription_updated"),
-        ("customer.subscription.paused", "customer_subscription_paused"),
-        ("customer.subscription.resumed", "customer_subscription_resumed"),
-        ("invoice.payment_succeeded", "invoice_payment_succeeded"),
-        ("invoice.payment_failed", "invoice_payment_failed"),
-        ("customer.subscription.deleted", "customer_subscription_deleted"),
+        (
+            "checkout.session.async_payment_succeeded",
+            "checkout_session_async_payment_succeeded",
+        ),
+        (
+            "checkout.session.async_payment_failed",
+            "checkout_session_async_payment_failed",
+        ),
     ],
 )
 def test_stripe_controller_webhook_dispatches_all_supported_events(

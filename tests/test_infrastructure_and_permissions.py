@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from src.configs.configs import Settings
 from src.configs import db_connection
 from src.controllers.question_answers_controller import QuestionAnswersController
-from src.middleware.check_permissions import check_permissions
+from src.middleware.check_permissions import check_permissions, _permission_error_detail
 from src.services.institutions_service import InstitutionsService
 from src.services.user_institution_service import UserInstitutionService
 from src.utils.fernet_utils import FernetUtils
@@ -95,6 +95,31 @@ def test_question_answers_controller_delegates_to_service(monkeypatch):
     assert response is expected
 
 
+def test_permission_error_detail_returns_exception_detail_attribute():
+    error = HTTPException(status_code=403, detail="custom detail")
+
+    response = _permission_error_detail(error)
+
+    assert response == "custom detail"
+
+
+def test_permission_error_detail_returns_detail_from_exception_dict():
+    class CustomError(Exception):
+        def __init__(self, detail):
+            super().__init__("boom")
+            self.detail = detail
+
+    response = _permission_error_detail(CustomError({"message": "custom detail"}))
+
+    assert response == {"message": "custom detail"}
+
+
+def test_permission_error_detail_returns_default_message_without_detail():
+    response = _permission_error_detail(RuntimeError("boom"))
+
+    assert response == "User does not have permission to access the institution"
+
+
 def test_check_permissions_allows_admin(monkeypatch):
     async def _read_one(*args, **kwargs):
         return SimpleNamespace(id=uuid4(), global_role="Admin")
@@ -133,7 +158,45 @@ def test_check_permissions_requires_active_subscription(monkeypatch):
         )
 
     assert exc.value.status_code == 403
-    assert exc.value.detail == "Active subscription required"
+    assert exc.value.detail == "Active question package required"
+
+
+def test_check_permissions_allows_latest_answers_without_active_subscription(monkeypatch):
+    user = SimpleNamespace(id=uuid4(), global_role="User")
+    membership = SimpleNamespace(profile=SimpleNamespace(name="basic_uba_user"))
+
+    async def _read_one(*args, **kwargs):
+        return user
+
+    async def _subscription(*args, **kwargs):
+        return False
+
+    async def _read_user_institutions(*args, **kwargs):
+        return membership
+
+    monkeypatch.setattr(
+        check_permissions.__globals__["users_service"], "read_one", _read_one
+    )
+    monkeypatch.setattr(
+        "src.middleware.check_permissions.AuthService.user_has_active_subscription",
+        _subscription,
+    )
+    monkeypatch.setattr(
+        "src.middleware.check_permissions.UserInstitutionService.read_user_institutions",
+        _read_user_institutions,
+    )
+
+    response = asyncio.run(
+        check_permissions(
+            str(uuid4()),
+            str(uuid4()),
+            "GET",
+            "/question-answers/latest-answers",
+            FakeAsyncSession(),
+        )
+    )
+
+    assert response is True
 
 
 def test_check_permissions_requires_user_membership(monkeypatch):
@@ -167,6 +230,40 @@ def test_check_permissions_requires_user_membership(monkeypatch):
 
     assert exc.value.status_code == 403
     assert exc.value.detail == "User does not belong to the institution"
+
+
+def test_check_permissions_requires_profile_permissions(monkeypatch):
+    user = SimpleNamespace(id=uuid4(), global_role="User")
+    membership = SimpleNamespace(profile=SimpleNamespace(name="unknown_profile"))
+
+    async def _read_one(*args, **kwargs):
+        return user
+
+    async def _subscription(*args, **kwargs):
+        return True
+
+    async def _read_user_institutions(*args, **kwargs):
+        return membership
+
+    monkeypatch.setattr(
+        check_permissions.__globals__["users_service"], "read_one", _read_one
+    )
+    monkeypatch.setattr(
+        "src.middleware.check_permissions.AuthService.user_has_active_subscription",
+        _subscription,
+    )
+    monkeypatch.setattr(
+        "src.middleware.check_permissions.UserInstitutionService.read_user_institutions",
+        _read_user_institutions,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            check_permissions(str(uuid4()), str(uuid4()), "GET", "/question-answers", FakeAsyncSession())
+        )
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "User does not have permission to access the institution"
 
 
 def test_check_permissions_allows_profile_action(monkeypatch):
@@ -233,6 +330,48 @@ def test_check_permissions_denies_invalid_context(monkeypatch):
 
     assert exc.value.status_code == 403
     assert exc.value.detail == "This profile do not have access to this content"
+
+
+def test_check_permissions_wraps_unexpected_permission_errors(monkeypatch):
+    user = SimpleNamespace(id=uuid4(), global_role="User")
+    membership = SimpleNamespace(profile=SimpleNamespace(name="basic_uba_user"))
+
+    async def _read_one(*args, **kwargs):
+        return user
+
+    async def _subscription(*args, **kwargs):
+        return True
+
+    async def _read_user_institutions(*args, **kwargs):
+        return membership
+
+    class BrokenPermissions(dict):
+        def get(self, key, default=None):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        check_permissions.__globals__["users_service"], "read_one", _read_one
+    )
+    monkeypatch.setattr(
+        "src.middleware.check_permissions.AuthService.user_has_active_subscription",
+        _subscription,
+    )
+    monkeypatch.setattr(
+        "src.middleware.check_permissions.UserInstitutionService.read_user_institutions",
+        _read_user_institutions,
+    )
+    monkeypatch.setattr(
+        "src.middleware.check_permissions.PERMISSIONS",
+        BrokenPermissions(),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            check_permissions(str(uuid4()), str(uuid4()), "GET", "/question-answers", FakeAsyncSession())
+        )
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "User does not have permission to access the institution"
 
 
 def test_institutions_service_returns_uba_institution():
