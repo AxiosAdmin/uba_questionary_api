@@ -1,3 +1,7 @@
+## v1.11.2
+
+- Adding a setting on checkout to not add extra charges after payment
+
 ## v1.11.1
 
 - Added front deploy url to the cors origins
