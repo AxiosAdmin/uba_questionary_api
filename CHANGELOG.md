@@ -1,3 +1,8 @@
+## v1.12.0
+
+- Changes on checkout generation to improve the reliability of the payments
+- Runned black formater to improve code quality
+
 ## v1.11.2
 
 - Adding a setting on checkout to not add extra charges after payment
