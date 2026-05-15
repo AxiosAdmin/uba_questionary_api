@@ -7,6 +7,9 @@ from src.services.user_institution_service import UserInstitutionService
 from src.helpers.permissions_list import PERMISSIONS
 
 users_service = Service(Users)
+SUBSCRIPTION_EXEMPT_ROUTES = {
+    ("GET", "/question-answers/latest-answers"),
+}
 
 
 def _permission_error_detail(error: Exception) -> str | dict | list:
@@ -46,8 +49,13 @@ async def check_permissions(institution_id, user_id, method, url_path, db):
     if user.global_role == "Admin":
         return True
 
-    if not await AuthService.user_has_active_subscription(user.id, db):
-        raise HTTPException(status_code=403, detail="Active subscription required")
+    normalized_route = (method.upper(), url_path.rstrip("/") or "/")
+
+    if (
+        normalized_route not in SUBSCRIPTION_EXEMPT_ROUTES
+        and not await AuthService.user_has_active_subscription(user.id, db)
+    ):
+        raise HTTPException(status_code=403, detail="Active question package required")
 
     user_institution = await UserInstitutionService.read_user_institutions(
         str(user_id), str(institution_id), db

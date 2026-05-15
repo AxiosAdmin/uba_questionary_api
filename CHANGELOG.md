@@ -1,3 +1,7 @@
+## v1.11.0
+
+- Changed the payment format from signature to package
+
 ## v1.10.1
 
 - Added a ENV Variable to remove documentation routes

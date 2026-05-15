@@ -6,8 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from src.models.models import Questions, Subscriptions, UsersInstitutions
+from src.services.stripe_service import StripeService
 
 ACTIVE_SUBSCRIPTION_STATUS = "active"
+ACTIVE_SUBSCRIPTION_REQUIRED_DETAIL = "Active question package required."
+QUESTIONS_PACKAGE_EXHAUSTED_DETAIL = "Question package exhausted. Buy a new package to continue."
 
 
 class SubscriptionService:
@@ -67,7 +70,7 @@ class SubscriptionService:
                 Subscriptions.user_id == user_uuid,
                 Subscriptions.status == ACTIVE_SUBSCRIPTION_STATUS,
             )
-            .order_by(Subscriptions.current_period_end.desc())
+            .order_by(Subscriptions.created_at.asc())
             .limit(1)
         )
 
@@ -78,9 +81,7 @@ class SubscriptionService:
         subscription = subscription_result.scalars().first()
 
         if not subscription:
-            raise HTTPException(
-                status_code=403, detail="Active subscription required."
-            )
+            raise HTTPException(status_code=403, detail=ACTIVE_SUBSCRIPTION_REQUIRED_DETAIL)
 
         return user_institution, subscription
 
@@ -91,7 +92,7 @@ class SubscriptionService:
         if questions_limit is not None and used_questions >= questions_limit:
             raise HTTPException(
                 status_code=403,
-                detail="Monthly question generation limit reached for this profile.",
+                detail=QUESTIONS_PACKAGE_EXHAUSTED_DETAIL,
             )
 
     @staticmethod
@@ -138,14 +139,27 @@ class SubscriptionService:
     async def get_question_generation_usage(user_id, institution_id, db):
         user_uuid = SubscriptionService._parse_uuid(user_id, "user_id")
 
-        subscription_query = (
+        active_subscription_query = (
             select(Subscriptions)
-            .where(Subscriptions.user_id == user_uuid)
-            .order_by(Subscriptions.current_period_end.desc(), Subscriptions.created_at.desc())
+            .where(
+                Subscriptions.user_id == user_uuid,
+                Subscriptions.status == ACTIVE_SUBSCRIPTION_STATUS,
+            )
+            .order_by(Subscriptions.created_at.asc())
             .limit(1)
         )
-        subscription_result = await db.execute(subscription_query)
-        subscription = subscription_result.scalars().first()
+        active_subscription_result = await db.execute(active_subscription_query)
+        subscription = active_subscription_result.scalars().first()
+
+        if not subscription:
+            subscription_query = (
+                select(Subscriptions)
+                .where(Subscriptions.user_id == user_uuid)
+                .order_by(Subscriptions.created_at.desc())
+                .limit(1)
+            )
+            subscription_result = await db.execute(subscription_query)
+            subscription = subscription_result.scalars().first()
 
         questions_limit = None
         if institution_id:
@@ -174,6 +188,23 @@ class SubscriptionService:
         return SubscriptionService._build_usage_summary(subscription, questions_limit)
 
     @staticmethod
+    async def _handle_exhausted_subscription(
+        subscription, questions_limit, user_id, db
+    ):
+        if questions_limit is None:
+            return
+
+        used_questions = subscription.questions_generated_in_cycle or 0
+        if used_questions < questions_limit:
+            return
+
+        subscription.status = "canceled"
+        subscription.updated_at = datetime.datetime.now(datetime.UTC).replace(
+            tzinfo=None
+        )
+        await StripeService._sync_user_access_for_user(db, user_id)
+
+    @staticmethod
     async def create_question_and_consume_quota(
         user_id, institution_id, question_payload, db
     ):
@@ -197,6 +228,13 @@ class SubscriptionService:
         ) + 1
         subscription.updated_at = datetime.datetime.now(datetime.UTC).replace(
             tzinfo=None
+        )
+
+        await SubscriptionService._handle_exhausted_subscription(
+            subscription=subscription,
+            questions_limit=user_institution.profile.questions_create_limit,
+            user_id=user_id,
+            db=db,
         )
 
         try:
