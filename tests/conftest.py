@@ -4,7 +4,6 @@ from uuid import uuid4
 
 import pytest
 
-
 os.environ["POSTGRES_DB"] = "test_db"
 os.environ["POSTGRES_USER"] = "test_user"
 os.environ["POSTGRES_PASSWORD"] = "test_password"
@@ -22,7 +21,7 @@ os.environ["WEBHOOK_STRIPE_SECRECT_KEY"] = "whsec_test"
 os.environ["DEFAULT_PRICE_ID"] = "price_test"
 os.environ["PAYMENT_CURRENCY"] = "brl"
 os.environ["CHECKOUT_REDIRECT_URL"] = "https://example.com/checkout"
-os.environ["FRONTEND_ORIGINS"] = "[\"http://localhost:3000\"]"
+os.environ["FRONTEND_ORIGINS"] = '["http://localhost:3000"]'
 
 
 class FakeScalarResult:
@@ -151,9 +150,7 @@ def authorize_request(monkeypatch):
             return True
 
         monkeypatch.setattr(jwt_middleware, "check_permissions", _check_permissions)
-        monkeypatch.setattr(
-            jwt_middleware, "async_session", lambda: middleware_session
-        )
+        monkeypatch.setattr(jwt_middleware, "async_session", lambda: middleware_session)
 
         return {
             "Authorization": "Bearer test-token",

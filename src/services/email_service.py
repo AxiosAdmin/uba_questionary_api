@@ -38,7 +38,9 @@ class EmailService:
         )
 
         if not smtp_from_email:
-            raise RuntimeError("SMTP_FROM_EMAIL must be configured when SMTP is enabled.")
+            raise RuntimeError(
+                "SMTP_FROM_EMAIL must be configured when SMTP is enabled."
+            )
 
         destination = EmailService._build_password_reset_destination(reset_token)
 

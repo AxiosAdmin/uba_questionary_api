@@ -10,7 +10,9 @@ from src.services.stripe_service import StripeService
 
 ACTIVE_SUBSCRIPTION_STATUS = "active"
 ACTIVE_SUBSCRIPTION_REQUIRED_DETAIL = "Active question package required."
-QUESTIONS_PACKAGE_EXHAUSTED_DETAIL = "Question package exhausted. Buy a new package to continue."
+QUESTIONS_PACKAGE_EXHAUSTED_DETAIL = (
+    "Question package exhausted. Buy a new package to continue."
+)
 
 
 class SubscriptionService:
@@ -31,7 +33,10 @@ class SubscriptionService:
         if not subscription.current_period_end:
             return
 
-        if subscription.questions_generation_cycle_end != subscription.current_period_end:
+        if (
+            subscription.questions_generation_cycle_end
+            != subscription.current_period_end
+        ):
             subscription.questions_generated_in_cycle = 0
             subscription.questions_generation_cycle_end = (
                 subscription.current_period_end
@@ -81,7 +86,9 @@ class SubscriptionService:
         subscription = subscription_result.scalars().first()
 
         if not subscription:
-            raise HTTPException(status_code=403, detail=ACTIVE_SUBSCRIPTION_REQUIRED_DETAIL)
+            raise HTTPException(
+                status_code=403, detail=ACTIVE_SUBSCRIPTION_REQUIRED_DETAIL
+            )
 
         return user_institution, subscription
 
@@ -119,11 +126,13 @@ class SubscriptionService:
 
     @staticmethod
     async def validate_question_generation_availability(user_id, institution_id, db):
-        user_institution, subscription = await SubscriptionService._get_generation_context(
-            user_id=user_id,
-            institution_id=institution_id,
-            db=db,
-            lock_subscription=False,
+        user_institution, subscription = (
+            await SubscriptionService._get_generation_context(
+                user_id=user_id,
+                institution_id=institution_id,
+                db=db,
+                lock_subscription=False,
+            )
         )
 
         SubscriptionService._sync_generation_cycle(subscription)
@@ -208,11 +217,13 @@ class SubscriptionService:
     async def create_question_and_consume_quota(
         user_id, institution_id, question_payload, db
     ):
-        user_institution, subscription = await SubscriptionService._get_generation_context(
-            user_id=user_id,
-            institution_id=institution_id,
-            db=db,
-            lock_subscription=True,
+        user_institution, subscription = (
+            await SubscriptionService._get_generation_context(
+                user_id=user_id,
+                institution_id=institution_id,
+                db=db,
+                lock_subscription=True,
+            )
         )
 
         SubscriptionService._sync_generation_cycle(subscription)

@@ -83,10 +83,8 @@ class AuthService:
                     return user
 
                 uba_institution = await InstitutionsService.get_uba_institution(db)
-                user_institutions = (
-                    await UserInstitutionService.read_user_institutions(
-                        user.id, uba_institution.id, db
-                    )
+                user_institutions = await UserInstitutionService.read_user_institutions(
+                    user.id, uba_institution.id, db
                 )
 
                 if user_institutions:

@@ -8,10 +8,13 @@ class StripeController:
 
     @staticmethod
     async def generate_payment_checkout(user_id, db):
-        user_exists = await UserService.check_user_existance(user_id, db)
+        checkout_contact = await UserService.get_user_checkout_contact(user_id, db)
 
-        if user_exists:
-            response = StripeService.generate_payment_checkout(user_id)
+        if checkout_contact:
+            response = StripeService.generate_payment_checkout(
+                checkout_contact["id"],
+                customer_email=checkout_contact["email"],
+            )
             return response
 
         return JSONResponse(
@@ -21,20 +24,26 @@ class StripeController:
 
     @staticmethod
     async def payment_response_webhook(request_data, db):
-        if request_data["type"] == "checkout.session.completed":
-            response = await StripeService.checkout_session_completed(request_data, db)
+        event_handlers = {
+            "checkout.session.completed": StripeService.checkout_session_completed,
+            "checkout.session.async_payment_succeeded": (
+                StripeService.checkout_session_async_payment_succeeded
+            ),
+            "checkout.session.async_payment_failed": (
+                StripeService.checkout_session_async_payment_failed
+            ),
+            "charge.succeeded": StripeService.charge_succeeded,
+            "charge.failed": StripeService.charge_failed,
+            "charge.updated": StripeService.charge_updated,
+            "charge.dispute.created": StripeService.charge_dispute_created,
+            "charge.dispute.closed": StripeService.charge_dispute_closed,
+            "radar.early_fraud_warning.created": (
+                StripeService.radar_early_fraud_warning_created
+            ),
+        }
 
-        elif request_data["type"] == "checkout.session.async_payment_succeeded":
-            response = await StripeService.checkout_session_async_payment_succeeded(
-                request_data, db
-            )
-
-        elif request_data["type"] == "checkout.session.async_payment_failed":
-            response = await StripeService.checkout_session_async_payment_failed(
-                request_data, db
-            )
-
-        else:
+        event_handler = event_handlers.get(request_data["type"])
+        if event_handler is None:
             return {"status": "ignored"}
 
-        return response
+        return await event_handler(request_data, db)

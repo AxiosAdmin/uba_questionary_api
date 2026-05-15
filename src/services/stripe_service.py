@@ -16,28 +16,33 @@ ACTIVE_ACCESS_STATUSES = {"active"}
 
 class StripeService:
     @staticmethod
-    def generate_payment_checkout(user_id):
+    def generate_payment_checkout(user_id, customer_email=None):
         user_id_str = str(user_id)
+        metadata = {
+            "user_id": user_id_str,
+            "price_id": settings.DEFAULT_PRICE_ID,
+        }
+        stripe_payload = {
+            "mode": "payment",
+            "line_items": [{"price": settings.DEFAULT_PRICE_ID, "quantity": 1}],
+            "adaptive_pricing": {"enabled": True},
+            "billing_address_collection": "required",
+            "customer_creation": "always",
+            "invoice_creation": {"enabled": True},
+            "payment_method_options": {"card": {"request_three_d_secure": "automatic"}},
+            "success_url": settings.CHECKOUT_REDIRECT_URL,
+            "client_reference_id": user_id_str,
+            "metadata": metadata,
+            "payment_intent_data": {
+                "metadata": metadata,
+            },
+        }
 
-        stripe_session = stripe_client.v1.checkout.sessions.create(
-            {
-                "mode": "payment",
-                "line_items": [{"price": settings.DEFAULT_PRICE_ID, "quantity": 1}],
-                "adaptive_pricing": {"enabled": False},
-                "success_url": settings.CHECKOUT_REDIRECT_URL,
-                "client_reference_id": user_id_str,
-                "metadata": {
-                    "user_id": user_id_str,
-                    "price_id": settings.DEFAULT_PRICE_ID,
-                },
-                "payment_intent_data": {
-                    "metadata": {
-                        "user_id": user_id_str,
-                        "price_id": settings.DEFAULT_PRICE_ID,
-                    }
-                },
-            }
-        )
+        if customer_email:
+            stripe_payload["customer_email"] = customer_email
+            stripe_payload["payment_intent_data"]["receipt_email"] = customer_email
+
+        stripe_session = stripe_client.v1.checkout.sessions.create(stripe_payload)
 
         return {"url_session": stripe_session.url}
 
@@ -126,6 +131,35 @@ class StripeService:
         return None
 
     @staticmethod
+    def _build_monitoring_response(data, category, action_required=False):
+        object_data = data.get("data", {}).get("object", {})
+
+        return {
+            "status": "processed",
+            "event": data["type"],
+            "monitoring_category": category,
+            "action_required": action_required,
+            "object_id": object_data.get("id"),
+            "object_type": object_data.get("object"),
+            "charge_id": (
+                object_data.get("charge")
+                if object_data.get("object") != "charge"
+                else object_data.get("id")
+            ),
+            "payment_intent_id": object_data.get("payment_intent"),
+            "user_id": StripeService._extract_user_id_from_metadata(object_data),
+            "price_id": StripeService._extract_price_id(object_data),
+            "customer_email": (
+                (object_data.get("billing_details") or {}).get("email")
+                or object_data.get("receipt_email")
+                or object_data.get("customer_email")
+            ),
+            "amount": object_data.get("amount"),
+            "currency": object_data.get("currency"),
+            "charge_status": object_data.get("status"),
+        }
+
+    @staticmethod
     async def _get_uba_context(session):
         institution_query = select(Institutions).where(
             Institutions.name == UBA_INSTITUTION_NAME
@@ -199,20 +233,22 @@ class StripeService:
             subscription.stripe_subscription_id = stripe_subscription_id
             subscription.user_id = user_id
             subscription.status = status
-            subscription.price_id = price_id or getattr(
-                subscription, "price_id", None
-            )
-            subscription.stripe_customer_id = (
-                stripe_customer_id
-                or getattr(subscription, "stripe_customer_id", None)
+            subscription.price_id = price_id or getattr(subscription, "price_id", None)
+            subscription.stripe_customer_id = stripe_customer_id or getattr(
+                subscription, "stripe_customer_id", None
             )
             subscription.current_period_end = (
-                current_period_end if current_period_end is not None else previous_period_end
+                current_period_end
+                if current_period_end is not None
+                else previous_period_end
             )
             if period_changed:
                 subscription.questions_generated_in_cycle = 0
                 subscription.questions_generation_cycle_end = current_period_end
-            elif current_cycle_end is None and subscription.current_period_end is not None:
+            elif (
+                current_cycle_end is None
+                and subscription.current_period_end is not None
+            ):
                 subscription.questions_generation_cycle_end = (
                     subscription.current_period_end
                 )
@@ -383,7 +419,47 @@ class StripeService:
         )
 
     @staticmethod
-    async def customer_subscription_created(data, db):
+    async def charge_succeeded(data):
+        return StripeService._build_monitoring_response(
+            data, category="charge_succeeded"
+        )
+
+    @staticmethod
+    async def charge_failed(data):
+        return StripeService._build_monitoring_response(
+            data,
+            category="charge_failed",
+            action_required=True,
+        )
+
+    @staticmethod
+    async def charge_updated(data):
+        return StripeService._build_monitoring_response(data, category="charge_updated")
+
+    @staticmethod
+    async def charge_dispute_created(data):
+        return StripeService._build_monitoring_response(
+            data,
+            category="charge_dispute_created",
+            action_required=True,
+        )
+
+    @staticmethod
+    async def charge_dispute_closed(data):
+        return StripeService._build_monitoring_response(
+            data, category="charge_dispute_closed"
+        )
+
+    @staticmethod
+    async def radar_early_fraud_warning_created(data):
+        return StripeService._build_monitoring_response(
+            data,
+            category="early_fraud_warning",
+            action_required=True,
+        )
+
+    @staticmethod
+    async def customer_subscription_created(data):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -391,7 +467,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def customer_subscription_updated(data, db):
+    async def customer_subscription_updated(data):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -399,7 +475,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def customer_subscription_paused(data, db):
+    async def customer_subscription_paused(data):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -407,7 +483,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def customer_subscription_resumed(data, db):
+    async def customer_subscription_resumed(data):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -415,7 +491,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def invoice_payment_succeeded(data, db):
+    async def invoice_payment_succeeded(data):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -423,7 +499,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def invoice_paid(data, db):
+    async def invoice_paid(data):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -431,7 +507,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def invoice_payment_failed(data, db):
+    async def invoice_payment_failed(data):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -439,7 +515,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def customer_subscription_deleted(data, db):
+    async def customer_subscription_deleted(data):
         return {
             "status": "ignored",
             "reason": "unsupported_event",

@@ -24,7 +24,9 @@ def test_registered_route_matrix(app):
     assert ("POST", "/stripe/webhook/payment") in registered
     assert ("POST", "/ai/anatomy") in registered
     assert any(
-        method == "GET" and path.startswith("/institutions/") and path != "/institutions"
+        method == "GET"
+        and path.startswith("/institutions/")
+        and path != "/institutions"
         for method, path in registered
     )
 
@@ -67,7 +69,9 @@ def test_login_route_validates_required_fields(client, override_db):
     assert response.status_code == 422
 
 
-def test_forgot_password_route_returns_generic_message(client, override_db, monkeypatch):
+def test_forgot_password_route_returns_generic_message(
+    client, override_db, monkeypatch
+):
     async def _forgot_password(email, db):
         assert email == "pedro@example.com"
         return {
@@ -128,7 +132,9 @@ def test_users_route_creates_user(client, override_db, monkeypatch):
             }
         }
 
-    monkeypatch.setattr("src.controllers.users_controller.UsersController.create_user", _create_user)
+    monkeypatch.setattr(
+        "src.controllers.users_controller.UsersController.create_user", _create_user
+    )
 
     response = client.post(
         "/users",
@@ -172,13 +178,17 @@ def test_users_route_rejects_weak_password(client, override_db):
 
 
 def test_question_answers_latest_answers_requires_authorization(client, override_db):
-    response = client.get("/question-answers/latest-answers", params={"user_id": str(uuid4())})
+    response = client.get(
+        "/question-answers/latest-answers", params={"user_id": str(uuid4())}
+    )
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Authorization header is required"
 
 
-def test_question_answers_latest_answers_rejects_invalid_bearer_format(client, override_db):
+def test_question_answers_latest_answers_rejects_invalid_bearer_format(
+    client, override_db
+):
     response = client.get(
         "/question-answers/latest-answers",
         params={"user_id": str(uuid4())},
@@ -186,7 +196,9 @@ def test_question_answers_latest_answers_rejects_invalid_bearer_format(client, o
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid authorization format. Use: Bearer <token>"
+    assert (
+        response.json()["detail"] == "Invalid authorization format. Use: Bearer <token>"
+    )
 
 
 def test_question_answers_latest_answers_rejects_invalid_token(
@@ -194,7 +206,9 @@ def test_question_answers_latest_answers_rejects_invalid_token(
 ):
     monkeypatch.setattr(
         "src.middleware.jwt_middleware.JWTUtils.decode_jwt",
-        staticmethod(lambda token: (_ for _ in ()).throw(jwt.InvalidTokenError("bad token"))),
+        staticmethod(
+            lambda token: (_ for _ in ()).throw(jwt.InvalidTokenError("bad token"))
+        ),
     )
     monkeypatch.setattr(
         "src.middleware.jwt_middleware.async_session",
@@ -339,10 +353,18 @@ def test_stripe_generate_route_validates_uuid(client, override_db):
 def test_stripe_webhook_route_parses_body_and_forwards_to_controller(
     client, override_db, monkeypatch
 ):
+    def _construct_event(payload, sig_header, secret):
+        assert sig_header == "valid-signature"
+        assert secret == "whsec_test"
+        return {"type": "checkout.session.completed", "data": {"object": {}}}
+
     async def _payment_webhook(payload, db):
         assert payload["type"] == "checkout.session.completed"
         return {"status": "processed"}
 
+    monkeypatch.setattr(
+        "src.routers.stripe_router.stripe.Webhook.construct_event", _construct_event
+    )
     monkeypatch.setattr(
         "src.controllers.stripe_controller.StripeController.payment_response_webhook",
         _payment_webhook,
@@ -351,10 +373,31 @@ def test_stripe_webhook_route_parses_body_and_forwards_to_controller(
     response = client.post(
         "/stripe/webhook/payment",
         json={"type": "checkout.session.completed", "data": {"object": {}}},
+        headers={"stripe-signature": "valid-signature"},
     )
 
     assert response.status_code == 200
     assert response.json() == {"status": "processed"}
+
+
+def test_stripe_webhook_route_rejects_invalid_signature(
+    client, override_db, monkeypatch
+):
+    def _construct_event(payload, sig_header, secret):
+        raise ValueError("invalid payload")
+
+    monkeypatch.setattr(
+        "src.routers.stripe_router.stripe.Webhook.construct_event", _construct_event
+    )
+
+    response = client.post(
+        "/stripe/webhook/payment",
+        json={"type": "checkout.session.completed", "data": {"object": {}}},
+        headers={"stripe-signature": "invalid-signature"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid Stripe webhook signature"
 
 
 def test_ai_anatomy_route_requires_authorization(client, override_db):
@@ -441,4 +484,7 @@ def test_ai_anatomy_route_requires_institution_header(
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "institution_id is required and must be a valid UUID."
+    assert (
+        response.json()["detail"]
+        == "institution_id is required and must be a valid UUID."
+    )

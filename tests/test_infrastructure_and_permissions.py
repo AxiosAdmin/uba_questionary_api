@@ -16,13 +16,17 @@ from tests.conftest import FakeAsyncSession, FakeExecuteResult
 
 
 def test_settings_parse_frontend_origins_from_json():
-    value = Settings.parse_frontend_origins('["http://localhost:3000", "https://example.com"]')
+    value = Settings.parse_frontend_origins(
+        '["http://localhost:3000", "https://example.com"]'
+    )
 
     assert value == ["http://localhost:3000", "https://example.com"]
 
 
 def test_settings_parse_frontend_origins_from_csv():
-    value = Settings.parse_frontend_origins("http://localhost:3000, https://example.com")
+    value = Settings.parse_frontend_origins(
+        "http://localhost:3000, https://example.com"
+    )
 
     assert value == ["http://localhost:3000", "https://example.com"]
 
@@ -37,8 +41,7 @@ def test_settings_builds_database_url():
     settings = Settings()
 
     assert settings.database_url == (
-        "postgresql+asyncpg://"
-        "test_user:test_password@localhost:5432/test_db"
+        "postgresql+asyncpg://" "test_user:test_password@localhost:5432/test_db"
     )
 
 
@@ -129,7 +132,9 @@ def test_check_permissions_allows_admin(monkeypatch):
     )
 
     response = asyncio.run(
-        check_permissions(str(uuid4()), str(uuid4()), "GET", "/institutions", FakeAsyncSession())
+        check_permissions(
+            str(uuid4()), str(uuid4()), "GET", "/institutions", FakeAsyncSession()
+        )
     )
 
     assert response is True
@@ -154,14 +159,18 @@ def test_check_permissions_requires_active_subscription(monkeypatch):
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
-            check_permissions(str(uuid4()), str(uuid4()), "GET", "/institutions", FakeAsyncSession())
+            check_permissions(
+                str(uuid4()), str(uuid4()), "GET", "/institutions", FakeAsyncSession()
+            )
         )
 
     assert exc.value.status_code == 403
     assert exc.value.detail == "Active question package required"
 
 
-def test_check_permissions_allows_latest_answers_without_active_subscription(monkeypatch):
+def test_check_permissions_allows_latest_answers_without_active_subscription(
+    monkeypatch,
+):
     user = SimpleNamespace(id=uuid4(), global_role="User")
     membership = SimpleNamespace(profile=SimpleNamespace(name="basic_uba_user"))
 
@@ -225,7 +234,9 @@ def test_check_permissions_requires_user_membership(monkeypatch):
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
-            check_permissions(str(uuid4()), str(uuid4()), "GET", "/institutions", FakeAsyncSession())
+            check_permissions(
+                str(uuid4()), str(uuid4()), "GET", "/institutions", FakeAsyncSession()
+            )
         )
 
     assert exc.value.status_code == 403
@@ -259,7 +270,13 @@ def test_check_permissions_requires_profile_permissions(monkeypatch):
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
-            check_permissions(str(uuid4()), str(uuid4()), "GET", "/question-answers", FakeAsyncSession())
+            check_permissions(
+                str(uuid4()),
+                str(uuid4()),
+                "GET",
+                "/question-answers",
+                FakeAsyncSession(),
+            )
         )
 
     assert exc.value.status_code == 403
@@ -292,7 +309,9 @@ def test_check_permissions_allows_profile_action(monkeypatch):
     )
 
     response = asyncio.run(
-        check_permissions(str(uuid4()), str(uuid4()), "POST", "/ai/anatomy", FakeAsyncSession())
+        check_permissions(
+            str(uuid4()), str(uuid4()), "POST", "/ai/anatomy", FakeAsyncSession()
+        )
     )
 
     assert response is True
@@ -325,7 +344,9 @@ def test_check_permissions_denies_invalid_context(monkeypatch):
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
-            check_permissions(str(uuid4()), str(uuid4()), "GET", "/institutions", FakeAsyncSession())
+            check_permissions(
+                str(uuid4()), str(uuid4()), "GET", "/institutions", FakeAsyncSession()
+            )
         )
 
     assert exc.value.status_code == 403
@@ -367,7 +388,13 @@ def test_check_permissions_wraps_unexpected_permission_errors(monkeypatch):
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
-            check_permissions(str(uuid4()), str(uuid4()), "GET", "/question-answers", FakeAsyncSession())
+            check_permissions(
+                str(uuid4()),
+                str(uuid4()),
+                "GET",
+                "/question-answers",
+                FakeAsyncSession(),
+            )
         )
 
     assert exc.value.status_code == 403

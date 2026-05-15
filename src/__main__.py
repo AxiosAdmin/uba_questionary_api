@@ -10,7 +10,7 @@ from src.routers import (
     auth_router,
     users_router,
     question_answers_router,
-    stripe_router
+    stripe_router,
 )
 from src.configs.configs import settings
 from src.models import routes_declaration

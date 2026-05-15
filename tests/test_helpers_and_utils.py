@@ -104,7 +104,9 @@ def test_users_post_encrypt_fields_returns_empty_value():
 
 def test_check_anatomy_sub_topic_for_locomotor(monkeypatch):
     expected_key = next(iter(LOCOMOTOR_DESCRIPTIONS.keys()))
-    monkeypatch.setattr("src.helpers.check_subtopic.random.choice", lambda seq: expected_key)
+    monkeypatch.setattr(
+        "src.helpers.check_subtopic.random.choice", lambda seq: expected_key
+    )
 
     subtopic, description = check_anatomy_sub_topic("Locomotor")
 
@@ -114,7 +116,9 @@ def test_check_anatomy_sub_topic_for_locomotor(monkeypatch):
 
 def test_check_anatomy_sub_topic_for_neuro(monkeypatch):
     expected_key = next(iter(NEURO_DESCRIPTIONS.keys()))
-    monkeypatch.setattr("src.helpers.check_subtopic.random.choice", lambda seq: expected_key)
+    monkeypatch.setattr(
+        "src.helpers.check_subtopic.random.choice", lambda seq: expected_key
+    )
 
     subtopic, description = check_anatomy_sub_topic("Neuroanatomy")
 
@@ -124,7 +128,9 @@ def test_check_anatomy_sub_topic_for_neuro(monkeypatch):
 
 def test_check_anatomy_sub_topic_for_splanchnology(monkeypatch):
     expected_key = next(iter(SPLACHNOLOGY_DESCRIPTIONS.keys()))
-    monkeypatch.setattr("src.helpers.check_subtopic.random.choice", lambda seq: expected_key)
+    monkeypatch.setattr(
+        "src.helpers.check_subtopic.random.choice", lambda seq: expected_key
+    )
 
     subtopic, description = check_anatomy_sub_topic("Splanchnology")
 

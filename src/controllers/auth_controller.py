@@ -93,8 +93,12 @@ class AuthController:
             await AuthService.reset_password(token, new_password, db)
             return {"message": "Password updated successfully."}
         except jwt.ExpiredSignatureError as exc:
-            raise HTTPException(status_code=401, detail="Password reset token expired") from exc
+            raise HTTPException(
+                status_code=401, detail="Password reset token expired"
+            ) from exc
         except jwt.InvalidTokenError as exc:
-            raise HTTPException(status_code=400, detail="Invalid password reset token") from exc
+            raise HTTPException(
+                status_code=400, detail="Invalid password reset token"
+            ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

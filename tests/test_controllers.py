@@ -93,7 +93,11 @@ def test_auth_controller_login_returns_usage_for_regular_user(monkeypatch):
         return expected_user
 
     async def _usage(*args, **kwargs):
-        return {"questions_used": 4, "questions_limit": None, "questions_remaining": None}
+        return {
+            "questions_used": 4,
+            "questions_limit": None,
+            "questions_remaining": None,
+        }
 
     monkeypatch.setattr("src.controllers.auth_controller.AuthService.login", _login)
     monkeypatch.setattr(
@@ -207,7 +211,9 @@ def test_auth_controller_reset_password_returns_success(monkeypatch):
     async def _reset_password(*args, **kwargs):
         return None
 
-    monkeypatch.setattr("src.controllers.auth_controller.AuthService.reset_password", _reset_password)
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.reset_password", _reset_password
+    )
 
     response = asyncio.run(
         AuthController.reset_password("token", "NovaSenha123!", FakeAsyncSession())
@@ -220,7 +226,9 @@ def test_auth_controller_reset_password_translates_expired_token(monkeypatch):
     async def _reset_password(*args, **kwargs):
         raise jwt.ExpiredSignatureError("expired")
 
-    monkeypatch.setattr("src.controllers.auth_controller.AuthService.reset_password", _reset_password)
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.reset_password", _reset_password
+    )
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
@@ -235,7 +243,9 @@ def test_auth_controller_reset_password_translates_invalid_token(monkeypatch):
     async def _reset_password(*args, **kwargs):
         raise jwt.InvalidTokenError("invalid")
 
-    monkeypatch.setattr("src.controllers.auth_controller.AuthService.reset_password", _reset_password)
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.reset_password", _reset_password
+    )
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(
@@ -250,12 +260,12 @@ def test_auth_controller_reset_password_translates_validation_errors(monkeypatch
     async def _reset_password(*args, **kwargs):
         raise ValueError("Password must be strong")
 
-    monkeypatch.setattr("src.controllers.auth_controller.AuthService.reset_password", _reset_password)
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.reset_password", _reset_password
+    )
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(
-            AuthController.reset_password("token", "weak", FakeAsyncSession())
-        )
+        asyncio.run(AuthController.reset_password("token", "weak", FakeAsyncSession()))
 
     assert exc.value.status_code == 400
     assert exc.value.detail == "Password must be strong"
@@ -482,16 +492,22 @@ def test_ai_anatomy_controller_generates_question_and_consumes_quota(monkeypatch
 
 
 def test_stripe_controller_generate_payment_checkout_returns_url(monkeypatch):
-    async def _user_exists(*args, **kwargs):
-        return True
+    monkeypatch.setattr(
+        "src.controllers.stripe_controller.UserService.get_user_checkout_contact",
+        lambda *args, **kwargs: asyncio.sleep(
+            0, result={"id": uuid4(), "email": "pedro@example.com"}
+        ),
+    )
+    captured = {}
+
+    def _generate_checkout(user_id, customer_email=None):
+        captured["user_id"] = user_id
+        captured["customer_email"] = customer_email
+        return {"url_session": "https://checkout.stripe.test"}
 
     monkeypatch.setattr(
-        "src.controllers.stripe_controller.UserService.check_user_existance",
-        _user_exists,
-    )
-    monkeypatch.setattr(
         "src.controllers.stripe_controller.StripeService.generate_payment_checkout",
-        staticmethod(lambda user_id: {"url_session": "https://checkout.stripe.test"}),
+        staticmethod(_generate_checkout),
     )
 
     response = asyncio.run(
@@ -499,15 +515,15 @@ def test_stripe_controller_generate_payment_checkout_returns_url(monkeypatch):
     )
 
     assert response == {"url_session": "https://checkout.stripe.test"}
+    assert captured["customer_email"] == "pedro@example.com"
 
 
-def test_stripe_controller_generate_payment_checkout_returns_404_when_user_missing(monkeypatch):
-    async def _user_exists(*args, **kwargs):
-        return False
-
+def test_stripe_controller_generate_payment_checkout_returns_404_when_user_missing(
+    monkeypatch,
+):
     monkeypatch.setattr(
-        "src.controllers.stripe_controller.UserService.check_user_existance",
-        _user_exists,
+        "src.controllers.stripe_controller.UserService.get_user_checkout_contact",
+        lambda *args, **kwargs: asyncio.sleep(0, result=None),
     )
 
     response = asyncio.run(
@@ -529,7 +545,10 @@ def test_stripe_controller_webhook_dispatches_to_expected_service(monkeypatch):
 
     response = asyncio.run(
         StripeController.payment_response_webhook(
-            {"type": "checkout.session.async_payment_succeeded", "data": {"object": {}}},
+            {
+                "type": "checkout.session.async_payment_succeeded",
+                "data": {"object": {}},
+            },
             FakeAsyncSession(),
         )
     )
@@ -551,6 +570,15 @@ def test_stripe_controller_webhook_dispatches_to_expected_service(monkeypatch):
         (
             "checkout.session.async_payment_failed",
             "checkout_session_async_payment_failed",
+        ),
+        ("charge.succeeded", "charge_succeeded"),
+        ("charge.failed", "charge_failed"),
+        ("charge.updated", "charge_updated"),
+        ("charge.dispute.created", "charge_dispute_created"),
+        ("charge.dispute.closed", "charge_dispute_closed"),
+        (
+            "radar.early_fraud_warning.created",
+            "radar_early_fraud_warning_created",
         ),
     ],
 )

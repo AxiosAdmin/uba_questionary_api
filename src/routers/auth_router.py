@@ -56,8 +56,6 @@ async def forgot_password(
     "/reset-password",
     response_model=ResetPasswordResponseSchema,
 )
-async def reset_password(
-    body: ResetPasswordSchema, db: AsyncSession = Depends(get_db)
-):
+async def reset_password(body: ResetPasswordSchema, db: AsyncSession = Depends(get_db)):
     """Reset the user password with a valid token."""
     return await AuthController.reset_password(body.token, body.new_password, db)
