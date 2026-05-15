@@ -1,3 +1,7 @@
+## v1.12.1
+
+- Changed the lenguage of the checkout to espanish
+
 ## v1.12.0
 
 - Changes on checkout generation to improve the reliability of the payments
