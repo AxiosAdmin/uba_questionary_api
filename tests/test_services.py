@@ -1083,6 +1083,7 @@ def test_stripe_service_generate_payment_checkout_builds_expected_payload(monkey
     assert captured["payload"]["customer_creation"] == "always"
     assert captured["payload"]["customer_email"] == "pedro@example.com"
     assert captured["payload"]["invoice_creation"] == {"enabled": True}
+    assert captured["payload"]["locale"] == "es"
     assert captured["payload"]["line_items"] == [{"price": "price_test", "quantity": 1}]
     assert captured["payload"]["payment_intent_data"]["receipt_email"] == (
         "pedro@example.com"

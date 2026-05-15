@@ -29,6 +29,7 @@ class StripeService:
             "billing_address_collection": "required",
             "customer_creation": "always",
             "invoice_creation": {"enabled": True},
+            "locale": "es",
             "payment_method_options": {"card": {"request_three_d_secure": "automatic"}},
             "success_url": settings.CHECKOUT_REDIRECT_URL,
             "client_reference_id": user_id_str,
