@@ -1,6 +1,7 @@
 ## v1.11.0
 
 - Changed the payment format from signature to package
+- Now the route /question-answers/last-answers don't need an active payment to be used, only a valid token
 
 ## v1.10.1
 
