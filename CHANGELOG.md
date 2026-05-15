@@ -1,3 +1,7 @@
+## v1.11.1
+
+- Added front deploy url to the cors origins
+
 ## v1.11.0
 
 - Changed the payment format from signature to package
