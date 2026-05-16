@@ -1230,7 +1230,7 @@ def test_stripe_service_generate_payment_checkout_builds_expected_payload(monkey
     assert response == {"url_session": "https://checkout.stripe.test"}
     assert captured["payload"]["mode"] == "payment"
     assert captured["payload"]["adaptive_pricing"] == {"enabled": True}
-    assert captured["payload"]["billing_address_collection"] == "required"
+    assert "billing_address_collection" not in captured["payload"]
     assert captured["payload"]["customer_creation"] == "always"
     assert captured["payload"]["customer_email"] == "pedro@example.com"
     assert captured["payload"]["invoice_creation"] == {"enabled": True}

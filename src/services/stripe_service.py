@@ -26,7 +26,6 @@ class StripeService:
             "mode": "payment",
             "line_items": [{"price": settings.DEFAULT_PRICE_ID, "quantity": 1}],
             "adaptive_pricing": {"enabled": True},
-            "billing_address_collection": "required",
             "customer_creation": "always",
             "invoice_creation": {"enabled": True},
             "locale": "es",
