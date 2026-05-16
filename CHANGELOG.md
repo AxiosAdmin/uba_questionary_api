@@ -1,3 +1,8 @@
+## v1.12.3
+
+- Removing obrigatory billing addres
+- [
+
 ## v1.12.2
 
 - Fixed forgot password route

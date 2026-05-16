@@ -1,6 +1,6 @@
 [project]
 name = "uba-ai-auto-generate-questionary-api"
-version = "1.12.2"
+version = "1.12.3"
 description = ""
 authors = [
     {name = "Pedro Vieira",email = "pedro515vieira@gmail.com"}
