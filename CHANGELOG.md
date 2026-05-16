@@ -1,3 +1,7 @@
+## v1.12.2
+
+- Fixed forgot password route
+
 ## v1.12.1
 
 - Changed the lenguage of the checkout to espanish
