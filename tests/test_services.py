@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta
+import smtplib
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -361,6 +362,106 @@ def test_email_service_requires_host_and_from_email_when_enabled(monkeypatch):
     )
 
 
+def test_email_service_requires_credentials_for_gmail_smtp(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            SMTP_ENABLED=True,
+            SMTP_HOST="smtp.gmail.com",
+            SMTP_PORT=587,
+            SMTP_USERNAME=None,
+            SMTP_PASSWORD=None,
+            SMTP_USE_TLS=True,
+            SMTP_USE_SSL=False,
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+        ),
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        EmailService.send_password_reset_email("pedro@example.com", "reset-token")
+
+    assert str(exc.value) == (
+        "SMTP_USERNAME/SMTP_PASSWORD must be configured when using smtp.gmail.com."
+    )
+
+
+def test_email_service_requires_16_char_gmail_app_password(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            SMTP_ENABLED=True,
+            SMTP_HOST="smtp.gmail.com",
+            SMTP_PORT=587,
+            SMTP_USERNAME="soporte@axiosacademia.com",
+            SMTP_PASSWORD="short-password",
+            SMTP_USE_TLS=True,
+            SMTP_USE_SSL=False,
+            SMTP_FROM_EMAIL="soporte@axiosacademia.com",
+            SMTP_FROM_NAME="Soporte Axios",
+        ),
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        EmailService.send_password_reset_email("pedro@example.com", "reset-token")
+
+    assert str(exc.value) == (
+        "SMTP_PASSWORD for smtp.gmail.com must be a 16-character Google app password."
+    )
+
+
+def test_email_service_normalizes_quoted_gmail_credentials(monkeypatch):
+    events = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout):
+            events.append(("connect", host, port, timeout))
+
+        def ehlo(self):
+            events.append("ehlo")
+
+        def starttls(self):
+            events.append("starttls")
+
+        def login(self, username, password):
+            events.append(("login", username, password))
+
+        def send_message(self, message):
+            events.append(("send_message", message["To"], message["Subject"]))
+
+        def quit(self):
+            events.append("quit")
+
+    monkeypatch.setattr("src.services.email_service.smtplib.SMTP", FakeSMTP)
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            SMTP_ENABLED=True,
+            SMTP_HOST='"smtp.gmail.com"',
+            SMTP_PORT=587,
+            SMTP_USERNAME='"soporte@axiosacademia.com"',
+            SMTP_PASSWORD='"piiu hpos kmrt nlhm"',
+            SMTP_USE_TLS=True,
+            SMTP_USE_SSL=False,
+            SMTP_FROM_EMAIL='"soporte@axiosacademia.com"',
+            SMTP_FROM_NAME="Soporte Axios",
+            PASSWORD_RESET_URL="https://app.example.com/reset-password",
+            PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES=30,
+        ),
+    )
+
+    EmailService.send_password_reset_email("pedro@example.com", "reset-token")
+
+    assert ("connect", "smtp.gmail.com", 587, 30) in events
+    assert (
+        "login",
+        "soporte@axiosacademia.com",
+        "piiuhposkmrtnlhm",
+    ) in events
+    assert ("send_message", "pedro@example.com", "Redefinicao de senha") in events
+    assert "quit" in events
+
+
 def test_email_service_wraps_delivery_errors(monkeypatch):
     events = []
 
@@ -383,6 +484,56 @@ def test_email_service_wraps_delivery_errors(monkeypatch):
 
         def quit(self):
             events.append("quit")
+
+    monkeypatch.setattr("src.services.email_service.smtplib.SMTP", FakeSMTP)
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            SMTP_ENABLED=True,
+            SMTP_HOST="smtp.example.com",
+            SMTP_PORT=587,
+            SMTP_USERNAME="noreply@example.com",
+            SMTP_PASSWORD="secret",
+            SMTP_USE_TLS=True,
+            SMTP_USE_SSL=False,
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+            PASSWORD_RESET_URL="https://app.example.com/reset-password",
+            PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES=30,
+        ),
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        EmailService.send_password_reset_email("pedro@example.com", "reset-token")
+
+    assert str(exc.value) == "Unable to send password reset email."
+    assert ("send_message", "pedro@example.com") in events
+    assert "quit" in events
+
+
+def test_email_service_ignores_disconnected_quit_after_delivery_error(monkeypatch):
+    events = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout):
+            events.append(("connect", host, port, timeout))
+
+        def ehlo(self):
+            events.append("ehlo")
+
+        def starttls(self):
+            events.append("starttls")
+
+        def login(self, username, password):
+            events.append(("login", username, password))
+
+        def send_message(self, message):
+            events.append(("send_message", message["To"]))
+            raise smtplib.SMTPSenderRefused(550, b"relay denied", "from@example.com")
+
+        def quit(self):
+            events.append("quit")
+            raise smtplib.SMTPServerDisconnected("please run connect() first")
 
     monkeypatch.setattr("src.services.email_service.smtplib.SMTP", FakeSMTP)
     monkeypatch.setattr(

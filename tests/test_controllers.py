@@ -207,6 +207,37 @@ def test_auth_controller_forgot_password_skips_email_when_user_not_found(monkeyp
     assert called["sent"] is False
 
 
+def test_auth_controller_forgot_password_returns_generic_message_when_email_fails(
+    monkeypatch,
+):
+    async def _request_password_reset(*args, **kwargs):
+        return "generated-token"
+
+    def _send_password_reset_email(*args, **kwargs):
+        raise RuntimeError("Unable to send password reset email.")
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.request_password_reset",
+        _request_password_reset,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.EmailService.send_password_reset_email",
+        _send_password_reset_email,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.settings",
+        SimpleNamespace(PASSWORD_RESET_INCLUDE_TOKEN_IN_RESPONSE=False),
+    )
+
+    response = asyncio.run(
+        AuthController.forgot_password("pedro@example.com", FakeAsyncSession())
+    )
+
+    assert response == {
+        "message": "If the email exists, password reset instructions have been generated."
+    }
+
+
 def test_auth_controller_reset_password_returns_success(monkeypatch):
     async def _reset_password(*args, **kwargs):
         return None

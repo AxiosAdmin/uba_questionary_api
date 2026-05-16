@@ -1,5 +1,7 @@
 """Authentication controller handling login requests and token generation."""
 
+import logging
+
 import jwt
 from fastapi import HTTPException
 
@@ -8,6 +10,8 @@ from src.services.email_service import EmailService
 from src.services.auth_service import AuthService
 from src.services.subscription_service import SubscriptionService
 from src.utils.jwt_utils import JWTUtils
+
+logger = logging.getLogger(__name__)
 
 
 class AuthController:
@@ -73,7 +77,12 @@ class AuthController:
         """
         token = await AuthService.request_password_reset(email, db)
         if token is not None:
-            EmailService.send_password_reset_email(email, token)
+            try:
+                EmailService.send_password_reset_email(email, token)
+            except RuntimeError:
+                logger.exception(
+                    "Password reset email delivery failed for the forgot-password flow."
+                )
 
         response = {
             "message": (

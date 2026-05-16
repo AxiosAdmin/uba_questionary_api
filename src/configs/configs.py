@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     SMTP_PORT: int
     SMTP_USE_TLS: bool
     SMTP_USE_SSL: bool
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
     SMTP_FROM_EMAIL: str
     SMTP_FROM_NAME: str
 

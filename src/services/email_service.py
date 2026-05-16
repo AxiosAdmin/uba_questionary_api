@@ -16,6 +16,19 @@ class EmailService:
         return getattr(settings, name, default)
 
     @staticmethod
+    def _normalize_smtp_value(value: str | None) -> str | None:
+        """Trim whitespace and optional wrapping quotes from SMTP settings."""
+        if value is None:
+            return None
+
+        normalized = value.strip()
+        if len(normalized) >= 2 and normalized[0] == normalized[-1]:
+            if normalized[0] in {'"', "'"}:
+                normalized = normalized[1:-1].strip()
+
+        return normalized
+
+    @staticmethod
     def _build_password_reset_destination(reset_token: str) -> str:
         password_reset_url = EmailService._get_setting("PASSWORD_RESET_URL")
         if password_reset_url:
@@ -69,13 +82,21 @@ class EmailService:
     def send_password_reset_email(recipient: str, reset_token: str) -> None:
         """Send a password reset email when SMTP delivery is enabled."""
         smtp_enabled = EmailService._get_setting("SMTP_ENABLED", False)
-        smtp_host = EmailService._get_setting("SMTP_HOST")
+        smtp_host = EmailService._normalize_smtp_value(
+            EmailService._get_setting("SMTP_HOST")
+        )
         smtp_port = EmailService._get_setting("SMTP_PORT", 587)
-        smtp_username = EmailService._get_setting("SMTP_USERNAME")
-        smtp_password = EmailService._get_setting("SMTP_PASSWORD")
+        smtp_username = EmailService._normalize_smtp_value(
+            EmailService._get_setting("SMTP_USERNAME")
+        )
+        smtp_password = EmailService._normalize_smtp_value(
+            EmailService._get_setting("SMTP_PASSWORD")
+        )
         smtp_use_tls = EmailService._get_setting("SMTP_USE_TLS", True)
         smtp_use_ssl = EmailService._get_setting("SMTP_USE_SSL", False)
-        smtp_from_email = EmailService._get_setting("SMTP_FROM_EMAIL")
+        smtp_from_email = EmailService._normalize_smtp_value(
+            EmailService._get_setting("SMTP_FROM_EMAIL")
+        )
 
         if not smtp_enabled:
             return
@@ -85,12 +106,31 @@ class EmailService:
                 "SMTP is enabled but SMTP_HOST/SMTP_FROM_EMAIL are not fully configured."
             )
 
+        if smtp_host.lower() == "smtp.gmail.com":
+            if smtp_password:
+                # Google app passwords are displayed in grouped blocks, but SMTP
+                # authentication expects the underlying token value.
+                smtp_password = smtp_password.replace(" ", "")
+
+            if not smtp_username or not smtp_password:
+                raise RuntimeError(
+                    "SMTP_USERNAME/SMTP_PASSWORD must be configured when using smtp.gmail.com."
+                )
+
+        if smtp_host.lower() == "smtp.gmail.com" and (
+            len(smtp_password or "") != 16
+        ):
+            raise RuntimeError(
+                "SMTP_PASSWORD for smtp.gmail.com must be a 16-character Google app password."
+            )
+
         message = EmailService._build_password_reset_message(recipient, reset_token)
 
         smtp_class = smtplib.SMTP_SSL if smtp_use_ssl else smtplib.SMTP
-        smtp = smtp_class(smtp_host, smtp_port, timeout=30)
+        smtp = None
 
         try:
+            smtp = smtp_class(smtp_host, smtp_port, timeout=30)
             smtp.ehlo()
 
             if smtp_use_tls and not smtp_use_ssl:
@@ -104,4 +144,8 @@ class EmailService:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             raise RuntimeError("Unable to send password reset email.") from exc
         finally:
-            smtp.quit()
+            if smtp is not None:
+                try:
+                    smtp.quit()
+                except smtplib.SMTPServerDisconnected:
+                    pass
