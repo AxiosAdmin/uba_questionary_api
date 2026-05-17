@@ -393,11 +393,11 @@ def test_email_service_requires_16_char_gmail_app_password(monkeypatch):
             SMTP_ENABLED=True,
             SMTP_HOST="smtp.gmail.com",
             SMTP_PORT=587,
-            SMTP_USERNAME="soporte@axiosacademia.com",
+            SMTP_USERNAME="support@example.com",
             SMTP_PASSWORD="short-password",
             SMTP_USE_TLS=True,
             SMTP_USE_SSL=False,
-            SMTP_FROM_EMAIL="soporte@axiosacademia.com",
+            SMTP_FROM_EMAIL="support@example.com",
             SMTP_FROM_NAME="Soporte Axios",
         ),
     )
@@ -439,11 +439,11 @@ def test_email_service_normalizes_quoted_gmail_credentials(monkeypatch):
             SMTP_ENABLED=True,
             SMTP_HOST='"smtp.gmail.com"',
             SMTP_PORT=587,
-            SMTP_USERNAME='"soporte@axiosacademia.com"',
-            SMTP_PASSWORD='"piiu hpos kmrt nlhm"',
+            SMTP_USERNAME='"support@example.com"',
+            SMTP_PASSWORD='"abcd efgh ijkl mnop"',
             SMTP_USE_TLS=True,
             SMTP_USE_SSL=False,
-            SMTP_FROM_EMAIL='"soporte@axiosacademia.com"',
+            SMTP_FROM_EMAIL='"support@example.com"',
             SMTP_FROM_NAME="Soporte Axios",
             PASSWORD_RESET_URL="https://app.example.com/reset-password",
             PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES=30,
@@ -455,8 +455,8 @@ def test_email_service_normalizes_quoted_gmail_credentials(monkeypatch):
     assert ("connect", "smtp.gmail.com", 587, 30) in events
     assert (
         "login",
-        "soporte@axiosacademia.com",
-        "piiuhposkmrtnlhm",
+        "support@example.com",
+        "abcdefghijklmnop",
     ) in events
     assert ("send_message", "pedro@example.com", "Redefinicao de senha") in events
     assert "quit" in events
