@@ -1,3 +1,7 @@
+## v1.13.0
+
+- Added biology questions page
+
 ## v1.12.3
 
 - Removing obrigatory billing addres
