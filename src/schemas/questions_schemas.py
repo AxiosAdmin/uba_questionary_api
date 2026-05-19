@@ -13,16 +13,16 @@ class QuestionsBase(BaseModel):
         from_attributes=True,
         json_schema_extra={
             "example": {
-                "question": "Qual Ã© a capital do Brasil?",
-                "answer_a": "SÃ£o Paulo",
+                "question": "Qual é a capital do Brasil?",
+                "answer_a": "São Paulo",
                 "answer_b": "Rio de Janeiro",
-                "answer_c": "BrasÃ­lia",
+                "answer_c": "Brasí­lia",
                 "answer_d": "Belo Horizonte",
                 "correct_answer": "C",
-                "explanation_a": "SÃ£o Paulo Ã© a maior cidade, mas nÃ£o a capital.",
+                "explanation_a": "São Paulo é a maior cidade, mas não a capital.",
                 "explanation_b": "Rio de Janeiro foi a capital antiga.",
-                "explanation_c": "BrasÃ­lia Ã© a capital atual.",
-                "explanation_d": "Belo Horizonte Ã© uma cidade importante, mas nÃ£o a capital.",
+                "explanation_c": "Brasí­lia é a capital atual.",
+                "explanation_d": "Belo Horizonte é uma cidade importante, mas não a capital.",
             }
         },
     )
@@ -47,16 +47,16 @@ class QuestionsGet(QuestionsBase):
         json_schema_extra={
             "example": {
                 "id": "123e4567-e89b-12d3-a456-426614174000",
-                "question": "Qual Ã© a capital do Brasil?",
-                "answer_a": "SÃ£o Paulo",
+                "question": "Qual é a capital do Brasil?",
+                "answer_a": "São Paulo",
                 "answer_b": "Rio de Janeiro",
-                "answer_c": "BrasÃ­lia",
+                "answer_c": "Brasí­lia",
                 "answer_d": "Belo Horizonte",
                 "correct_answer": "C",
-                "explanation_a": "SÃ£o Paulo Ã© a maior cidade, mas nÃ£o a capital.",
+                "explanation_a": "São Paulo é a maior cidade, mas não a capital.",
                 "explanation_b": "Rio de Janeiro foi a capital antiga.",
-                "explanation_c": "BrasÃ­lia Ã© a capital atual.",
-                "explanation_d": "Belo Horizonte Ã© uma cidade importante, mas nÃ£o a capital.",
+                "explanation_c": "Brasí­lia é a capital atual.",
+                "explanation_d": "Belo Horizonte é uma cidade importante, mas não a capital.",
             }
         },
     )
@@ -74,7 +74,7 @@ class OnlyQuestionsGetSchema(BaseModel):
 
     model_config = ConfigDict(
         from_attributes=True,
-        json_schema_extra={"example": {"question": "Qual Ã© a capital do Brasil?"}},
+        json_schema_extra={"example": {"question": "Qual é a capital do Brasil?"}},
     )
 
     question: str

@@ -8,6 +8,7 @@ from .users_schemas import (
     UsersPost,
 )
 from .ai_anatomy_schemas import AnatomySchema, ParameterEnum
+from .ai_biology_schemas import BiologyParameterEnum, BiologySchema
 from .profile_schemas import ProfileBase, ProfileGet, ProfilePost, ProfileUpdate
 from .questions_schemas import QuestionsBase, QuestionsGet
 from .questions_answers_schema import (
@@ -22,6 +23,8 @@ from src.schemas.user_feedback_schema import UserFeedbackSchemaBase
 
 __all__ = [
     "AnatomySchema",
+    "BiologyParameterEnum",
+    "BiologySchema",
     "ParameterEnum",
     "ProfileBase",
     "ProfileGet",

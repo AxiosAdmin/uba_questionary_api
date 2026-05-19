@@ -8,9 +8,11 @@ import pytest
 from fastapi import HTTPException
 
 import src.services.ai_anatomy_service as ai_anatomy_service_module
+import src.services.ai_biology_service as ai_biology_service_module
 from src.models.models import Questions, Subscriptions
 from src.schemas.questions_schemas import OnlyQuestionsGetSchema
 from src.services.ai_anatomy_service import AIAnatomyService
+from src.services.ai_biology_service import AIBiologyService
 from src.services.auth_service import AuthService
 from src.services.email_service import EmailService
 from src.services.question_answers_service import QuestionAnswersService
@@ -1900,6 +1902,61 @@ def test_ai_anatomy_service_generate_response_handles_empty_recent_questions(
             subtopic="cerebelo",
             subtopic_description="estrutura do cerebelo",
             diversity_mode="relationship",
+            correct_letter="B",
+            recent_questions=[],
+        )
+    )
+
+    assert "There are no recent questions to avoid repetition." in captured["input"]
+
+
+def test_ai_biology_service_generate_response_formats_prompt(monkeypatch):
+    expected_response = SimpleNamespace(id="response-123")
+    captured = {}
+
+    def _create(*, model, input):
+        captured["model"] = model
+        captured["input"] = input
+        return expected_response
+
+    monkeypatch.setattr(ai_biology_service_module.client.responses, "create", _create)
+
+    response = asyncio.run(
+        AIBiologyService.generate_response(
+            parameter="Genetica",
+            subtopic="herencia_mitocondrial",
+            subtopic_description="transmision y heteroplasmia",
+            diversity_mode="mechanism",
+            correct_letter="B",
+            recent_questions=[SimpleNamespace(question="Pergunta antiga")],
+        )
+    )
+
+    assert response is expected_response
+    assert captured["model"] == "gpt-5.4-mini"
+    assert "Genetica" in captured["input"]
+    assert "herencia_mitocondrial" in captured["input"]
+    assert "Pergunta antiga" in captured["input"]
+    assert "mechanism" in captured["input"]
+
+
+def test_ai_biology_service_generate_response_handles_empty_recent_questions(
+    monkeypatch,
+):
+    captured = {}
+
+    def _create(*, model, input):
+        captured["input"] = input
+        return SimpleNamespace(id="response-123")
+
+    monkeypatch.setattr(ai_biology_service_module.client.responses, "create", _create)
+
+    asyncio.run(
+        AIBiologyService.generate_response(
+            parameter="Genetica",
+            subtopic="herencia_mitocondrial",
+            subtopic_description="transmision y heteroplasmia",
+            diversity_mode="mechanism",
             correct_letter="B",
             recent_questions=[],
         )

@@ -3,7 +3,11 @@ from uuid import uuid4
 
 import jwt
 
-from src.helpers.check_subtopic import check_anatomy_sub_topic
+from src.helpers.biologia_questionary_text import (
+    BIOLOGIA_CELULAR_Y_MOLECULAR_DESCRIPTIONS,
+    GENETICA_DESCRIPTIONS,
+)
+from src.helpers.check_subtopic import check_anatomy_sub_topic, check_biology_sub_topic
 from src.helpers.questions_text import (
     LOCOMOTOR_DESCRIPTIONS,
     NEURO_DESCRIPTIONS,
@@ -143,5 +147,38 @@ def test_check_anatomy_sub_topic_rejects_unsupported_topic():
         check_anatomy_sub_topic("Cardiology")
     except ValueError as exc:
         assert "Unsupported anatomy topic" in str(exc)
+    else:
+        assert False, "Expected unsupported topic error"
+
+
+def test_check_biology_sub_topic_for_biologia_celular(monkeypatch):
+    expected_key = next(iter(BIOLOGIA_CELULAR_Y_MOLECULAR_DESCRIPTIONS.keys()))
+    monkeypatch.setattr(
+        "src.helpers.check_subtopic.random.choice", lambda seq: expected_key
+    )
+
+    subtopic, description = check_biology_sub_topic("Biologia Celular y Molecular")
+
+    assert subtopic == expected_key
+    assert description == BIOLOGIA_CELULAR_Y_MOLECULAR_DESCRIPTIONS[expected_key]
+
+
+def test_check_biology_sub_topic_for_genetica(monkeypatch):
+    expected_key = next(iter(GENETICA_DESCRIPTIONS.keys()))
+    monkeypatch.setattr(
+        "src.helpers.check_subtopic.random.choice", lambda seq: expected_key
+    )
+
+    subtopic, description = check_biology_sub_topic("Genetica")
+
+    assert subtopic == expected_key
+    assert description == GENETICA_DESCRIPTIONS[expected_key]
+
+
+def test_check_biology_sub_topic_rejects_unsupported_topic():
+    try:
+        check_biology_sub_topic("Botanica")
+    except ValueError as exc:
+        assert "Unsupported biology topic" in str(exc)
     else:
         assert False, "Expected unsupported topic error"

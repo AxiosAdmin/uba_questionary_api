@@ -23,6 +23,7 @@ def test_registered_route_matrix(app):
     assert ("POST", "/stripe/generate") in registered
     assert ("POST", "/stripe/webhook/payment") in registered
     assert ("POST", "/ai/anatomy") in registered
+    assert ("POST", "/ai/biology") in registered
     assert any(
         method == "GET"
         and path.startswith("/institutions/")
@@ -480,6 +481,96 @@ def test_ai_anatomy_route_requires_institution_header(
     response = client.post(
         "/ai/anatomy",
         json={"parameter": "Neuroanatomy"},
+        headers=headers,
+    )
+
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"]
+        == "institution_id is required and must be a valid UUID."
+    )
+
+
+def test_ai_biology_route_requires_authorization(client, override_db):
+    response = client.post("/ai/biology", json={"parameter": "Genetica"})
+
+    assert response.status_code == 401
+
+
+def test_ai_biology_route_returns_controller_response(
+    client, override_db, authorize_request, monkeypatch
+):
+    headers, _ = authorize_request()
+
+    async def _generate_question(parameter, db, institution_id, user_id):
+        assert parameter == "Genetica"
+        assert institution_id == headers["x-institution-id"]
+        assert user_id is not None
+        return {
+            "data": {
+                "id": str(uuid4()),
+                "institution_id": headers["x-institution-id"],
+                "topic": "Genetica",
+                "subtopic": "herencia_mitocondrial",
+                "subtopic_description": "transmision y heteroplasmia",
+                "diversity_mode": "mechanism",
+                "question": "Pergunta gerada",
+                "answer_a": "Opcao A",
+                "answer_b": "Opcao B",
+                "answer_c": "Opcao C",
+                "answer_d": "Opcao D",
+                "correct_answer": "A",
+                "explanation_a": "A alternativa A e correta.",
+                "explanation_b": "A alternativa B e incorreta.",
+                "explanation_c": "A alternativa C e incorreta.",
+                "explanation_d": "A alternativa D e incorreta.",
+            }
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.ai_biology_controller.AIBiologyController.generate_question",
+        _generate_question,
+    )
+
+    response = client.post(
+        "/ai/biology",
+        json={"parameter": "Genetica"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["question"] == "Pergunta gerada"
+
+
+def test_ai_biology_route_validates_enum(client, override_db, authorize_request):
+    headers, _ = authorize_request()
+
+    response = client.post(
+        "/ai/biology",
+        json={"parameter": "Botanica"},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+
+
+def test_ai_biology_route_requires_institution_header(
+    client, override_db, authorize_request, monkeypatch
+):
+    headers, _ = authorize_request()
+    headers.pop("x-institution-id")
+
+    async def _validate(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "src.controllers.ai_biology_controller.SubscriptionService.validate_question_generation_availability",
+        _validate,
+    )
+
+    response = client.post(
+        "/ai/biology",
+        json={"parameter": "Genetica"},
         headers=headers,
     )
 
