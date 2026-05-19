@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from src.controllers.ai_anatomy_controller import AIAnatomyController
+from src.controllers.ai_biology_controller import AIBiologyController
 from src.controllers.auth_controller import AuthController
 from src.controllers.stripe_controller import StripeController
 from src.controllers.users_controller import UsersController
@@ -512,6 +513,142 @@ def test_ai_anatomy_controller_generates_question_and_consumes_quota(monkeypatch
     response = asyncio.run(
         AIAnatomyController.generate_question(
             "Neuroanatomy",
+            FakeAsyncSession(),
+            str(institution_id),
+            str(user_id),
+        )
+    )
+
+    assert response["data"] is created_question
+    assert response["question_generation_usage"] == usage
+
+
+def test_ai_biology_controller_rejects_invalid_institution_id():
+    try:
+        asyncio.run(
+            AIBiologyController.generate_question(
+                "Genetica",
+                FakeAsyncSession(),
+                "invalid-uuid",
+                str(uuid4()),
+            )
+        )
+    except ValueError as exc:
+        assert "Invalid institution_id format" in str(exc)
+    else:
+        assert False, "Expected invalid institution UUID error"
+
+
+def test_ai_biology_controller_requires_institution_id():
+    try:
+        asyncio.run(
+            AIBiologyController.generate_question(
+                "Genetica",
+                FakeAsyncSession(),
+                None,
+                str(uuid4()),
+            )
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "institution_id is required and must be a valid UUID."
+    else:
+        assert False, "Expected institution requirement error"
+
+
+def test_ai_biology_controller_requires_authenticated_user():
+    try:
+        asyncio.run(
+            AIBiologyController.generate_question(
+                "Genetica",
+                FakeAsyncSession(),
+                str(uuid4()),
+                None,
+            )
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 401
+        assert exc.detail == "Authenticated user is required to generate questions."
+    else:
+        assert False, "Expected authenticated user requirement"
+
+
+def test_ai_biology_controller_generates_question_and_consumes_quota(monkeypatch):
+    institution_id = uuid4()
+    user_id = uuid4()
+    created_question = SimpleNamespace(id=uuid4(), question="Pergunta final")
+    usage = {"questions_used": 2, "questions_limit": 10, "questions_remaining": 8}
+    ai_response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                content=[
+                    SimpleNamespace(
+                        text=json.dumps(
+                            {
+                                "question": "Qual alteracao caracteriza a heranca mitocondrial?",
+                                "answer_a": "Transmissao exclusivamente materna",
+                                "answer_b": "Transmissao exclusivamente paterna",
+                                "answer_c": "Segregacao mendeliana classica",
+                                "answer_d": "Ausencia de heteroplasmia",
+                                "explanation_a": "A alternativa A e correta.",
+                                "explanation_b": "A alternativa B e incorreta.",
+                                "explanation_c": "A alternativa C e incorreta.",
+                                "explanation_d": "A alternativa D e incorreta.",
+                                "correct_answer": "A",
+                            }
+                        )
+                    )
+                ]
+            )
+        ]
+    )
+    random_choices = iter(["mechanism", "A"])
+
+    async def _validate(*args, **kwargs):
+        return None
+
+    async def _last_questions(*args, **kwargs):
+        return [SimpleNamespace(question="Pergunta anterior")]
+
+    async def _generate_response(*args, **kwargs):
+        return ai_response
+
+    async def _create_question(*args, **kwargs):
+        payload = kwargs["question_payload"]
+        assert payload["topic"] == "Genetica"
+        assert payload["subtopic"] == "herencia_mitocondrial"
+        assert payload["diversity_mode"] == "mechanism"
+        assert payload["institution_id"] == institution_id
+        return created_question, usage
+
+    monkeypatch.setattr(
+        "src.controllers.ai_biology_controller.SubscriptionService.validate_question_generation_availability",
+        _validate,
+    )
+    monkeypatch.setattr(
+        "src.controllers.ai_biology_controller.check_biology_sub_topic",
+        lambda parameter: ["herencia_mitocondrial", "transmision y heteroplasmia"],
+    )
+    monkeypatch.setattr(
+        "src.controllers.ai_biology_controller.random.choice",
+        lambda options: next(random_choices),
+    )
+    monkeypatch.setattr(
+        "src.controllers.ai_biology_controller.QuestionsService.get_last_three_questions",
+        _last_questions,
+    )
+    monkeypatch.setattr(
+        "src.controllers.ai_biology_controller.AIBiologyService.generate_response",
+        _generate_response,
+    )
+    monkeypatch.setattr(
+        "src.controllers.ai_biology_controller.SubscriptionService.create_question_and_consume_quota",
+        _create_question,
+    )
+
+    response = asyncio.run(
+        AIBiologyController.generate_question(
+            "Genetica",
             FakeAsyncSession(),
             str(institution_id),
             str(user_id),

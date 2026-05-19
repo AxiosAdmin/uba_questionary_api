@@ -7,6 +7,7 @@ from api_crud_generate_libary.routers.router import Router
 
 from src.routers import (
     ai_anatomy_router,
+    ai_biology_router,
     auth_router,
     users_router,
     question_answers_router,
@@ -99,5 +100,12 @@ app.include_router(
     ai_anatomy_router,
     prefix="/ai",
     tags=["Anatomy"],
+    dependencies=[Depends(institution_id), Depends(security)],
+)
+
+app.include_router(
+    ai_biology_router,
+    prefix="/ai",
+    tags=["Biology"],
     dependencies=[Depends(institution_id), Depends(security)],
 )
