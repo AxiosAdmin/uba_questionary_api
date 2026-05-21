@@ -26,6 +26,11 @@ class StripeService:
         if isinstance(payload, list):
             return [StripeService._normalize_stripe_payload(item) for item in payload]
 
+        if hasattr(payload, "_to_dict_recursive"):
+            return StripeService._normalize_stripe_payload(
+                payload._to_dict_recursive()
+            )
+
         if hasattr(payload, "to_dict_recursive"):
             return StripeService._normalize_stripe_payload(payload.to_dict_recursive())
 

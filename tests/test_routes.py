@@ -388,7 +388,7 @@ def test_stripe_webhook_route_normalizes_stripe_sdk_event(
     client, override_db, monkeypatch
 ):
     class _StripeEvent:
-        def to_dict_recursive(self):
+        def _to_dict_recursive(self):
             return {
                 "type": "checkout.session.completed",
                 "data": {"object": {"id": "cs_123"}},
