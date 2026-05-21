@@ -24,6 +24,8 @@ class StripeController:
 
     @staticmethod
     async def payment_response_webhook(request_data, db):
+        request_data = StripeService._normalize_stripe_payload(request_data)
+
         event_handlers = {
             "checkout.session.completed": StripeService.checkout_session_completed,
             "checkout.session.async_payment_succeeded": (

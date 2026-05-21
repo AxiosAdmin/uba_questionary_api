@@ -16,6 +16,36 @@ ACTIVE_ACCESS_STATUSES = {"active"}
 
 class StripeService:
     @staticmethod
+    def _normalize_stripe_payload(payload):
+        if isinstance(payload, dict):
+            return {
+                key: StripeService._normalize_stripe_payload(value)
+                for key, value in payload.items()
+            }
+
+        if isinstance(payload, list):
+            return [StripeService._normalize_stripe_payload(item) for item in payload]
+
+        if hasattr(payload, "_to_dict_recursive"):
+            return StripeService._normalize_stripe_payload(
+                payload._to_dict_recursive()
+            )
+
+        if hasattr(payload, "to_dict_recursive"):
+            return StripeService._normalize_stripe_payload(payload.to_dict_recursive())
+
+        if hasattr(payload, "items"):
+            try:
+                return {
+                    key: StripeService._normalize_stripe_payload(value)
+                    for key, value in payload.items()
+                }
+            except TypeError:
+                return payload
+
+        return payload
+
+    @staticmethod
     def generate_payment_checkout(user_id, customer_email=None):
         user_id_str = str(user_id)
         metadata = {
@@ -132,6 +162,7 @@ class StripeService:
 
     @staticmethod
     def _build_monitoring_response(data, category, action_required=False):
+        data = StripeService._normalize_stripe_payload(data)
         object_data = data.get("data", {}).get("object", {})
 
         return {
@@ -341,7 +372,8 @@ class StripeService:
 
     @staticmethod
     async def _sync_checkout_session_purchase(data, db, normalized_status=None):
-        session_data = data["data"]["object"]
+        data = StripeService._normalize_stripe_payload(data)
+        session_data = StripeService._normalize_stripe_payload(data["data"]["object"])
         stripe_session_id = session_data.get("id")
 
         if not stripe_session_id:
