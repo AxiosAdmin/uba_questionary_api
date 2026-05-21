@@ -157,6 +157,7 @@ class StripeService:
 
     @staticmethod
     def _build_monitoring_response(data, category, action_required=False):
+        data = StripeService._normalize_stripe_payload(data)
         object_data = data.get("data", {}).get("object", {})
 
         return {
@@ -366,7 +367,8 @@ class StripeService:
 
     @staticmethod
     async def _sync_checkout_session_purchase(data, db, normalized_status=None):
-        session_data = data["data"]["object"]
+        data = StripeService._normalize_stripe_payload(data)
+        session_data = StripeService._normalize_stripe_payload(data["data"]["object"])
         stripe_session_id = session_data.get("id")
 
         if not stripe_session_id:
