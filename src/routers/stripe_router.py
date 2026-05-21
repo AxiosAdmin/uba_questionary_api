@@ -32,6 +32,8 @@ async def payment_response_webhook(
             sig_header=stripe_signature or "",
             secret=settings.WEBHOOK_STRIPE_SECRECT_KEY,
         )
+        if hasattr(request_body, "to_dict_recursive"):
+            request_body = request_body.to_dict_recursive()
     except (ValueError, stripe.SignatureVerificationError) as exc:
         raise HTTPException(
             status_code=400, detail="Invalid Stripe webhook signature"

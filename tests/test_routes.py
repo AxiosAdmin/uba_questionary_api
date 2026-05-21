@@ -1,7 +1,10 @@
+import importlib
 from types import SimpleNamespace
 from uuid import uuid4
 
 import jwt
+
+stripe_router_module = importlib.import_module("src.routers.stripe_router")
 
 
 def test_registered_route_matrix(app):
@@ -364,7 +367,45 @@ def test_stripe_webhook_route_parses_body_and_forwards_to_controller(
         return {"status": "processed"}
 
     monkeypatch.setattr(
-        "src.routers.stripe_router.stripe.Webhook.construct_event", _construct_event
+        stripe_router_module.stripe.Webhook, "construct_event", _construct_event
+    )
+    monkeypatch.setattr(
+        "src.controllers.stripe_controller.StripeController.payment_response_webhook",
+        _payment_webhook,
+    )
+
+    response = client.post(
+        "/stripe/webhook/payment",
+        json={"type": "checkout.session.completed", "data": {"object": {}}},
+        headers={"stripe-signature": "valid-signature"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "processed"}
+
+
+def test_stripe_webhook_route_normalizes_stripe_sdk_event(
+    client, override_db, monkeypatch
+):
+    class _StripeEvent:
+        def to_dict_recursive(self):
+            return {
+                "type": "checkout.session.completed",
+                "data": {"object": {"id": "cs_123"}},
+            }
+
+    def _construct_event(payload, sig_header, secret):
+        return _StripeEvent()
+
+    async def _payment_webhook(payload, db):
+        assert payload == {
+            "type": "checkout.session.completed",
+            "data": {"object": {"id": "cs_123"}},
+        }
+        return {"status": "processed"}
+
+    monkeypatch.setattr(
+        stripe_router_module.stripe.Webhook, "construct_event", _construct_event
     )
     monkeypatch.setattr(
         "src.controllers.stripe_controller.StripeController.payment_response_webhook",
@@ -388,7 +429,7 @@ def test_stripe_webhook_route_rejects_invalid_signature(
         raise ValueError("invalid payload")
 
     monkeypatch.setattr(
-        "src.routers.stripe_router.stripe.Webhook.construct_event", _construct_event
+        stripe_router_module.stripe.Webhook, "construct_event", _construct_event
     )
 
     response = client.post(
