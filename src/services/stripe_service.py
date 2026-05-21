@@ -16,6 +16,31 @@ ACTIVE_ACCESS_STATUSES = {"active"}
 
 class StripeService:
     @staticmethod
+    def _normalize_stripe_payload(payload):
+        if isinstance(payload, dict):
+            return {
+                key: StripeService._normalize_stripe_payload(value)
+                for key, value in payload.items()
+            }
+
+        if isinstance(payload, list):
+            return [StripeService._normalize_stripe_payload(item) for item in payload]
+
+        if hasattr(payload, "to_dict_recursive"):
+            return StripeService._normalize_stripe_payload(payload.to_dict_recursive())
+
+        if hasattr(payload, "items"):
+            try:
+                return {
+                    key: StripeService._normalize_stripe_payload(value)
+                    for key, value in payload.items()
+                }
+            except TypeError:
+                return payload
+
+        return payload
+
+    @staticmethod
     def generate_payment_checkout(user_id, customer_email=None):
         user_id_str = str(user_id)
         metadata = {

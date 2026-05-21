@@ -780,3 +780,52 @@ def test_stripe_controller_webhook_ignores_unknown_event():
     )
 
     assert response == {"status": "ignored"}
+
+
+def test_stripe_controller_webhook_normalizes_nested_stripe_objects(monkeypatch):
+    class _StripeLikeObject:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def to_dict_recursive(self):
+            return self._payload
+
+    async def _completed(payload, db):
+        assert payload == {
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "id": "cs_123",
+                    "payment_status": "paid",
+                    "customer": "cus_123",
+                }
+            },
+        }
+        return {"status": "processed"}
+
+    monkeypatch.setattr(
+        "src.controllers.stripe_controller.StripeService.checkout_session_completed",
+        _completed,
+    )
+
+    response = asyncio.run(
+        StripeController.payment_response_webhook(
+            _StripeLikeObject(
+                {
+                    "type": "checkout.session.completed",
+                    "data": {
+                        "object": _StripeLikeObject(
+                            {
+                                "id": "cs_123",
+                                "payment_status": "paid",
+                                "customer": "cus_123",
+                            }
+                        )
+                    },
+                }
+            ),
+            FakeAsyncSession(),
+        )
+    )
+
+    assert response == {"status": "processed"}
