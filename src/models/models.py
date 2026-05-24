@@ -77,7 +77,7 @@ class Users(Base):
         PrimaryKeyConstraint("id", name="users_pkey"),
         UniqueConstraint("email_hash", name="users_email_hash_key"),
         UniqueConstraint("nickname_hash", name="users_nickname_hash_key"),
-        UniqueConstraint("cbu_hash", name="users_cbu_hash_key"),
+        UniqueConstraint("dni_hash", name="users_dni_hash_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -88,8 +88,8 @@ class Users(Base):
     email_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     nickname: Mapped[str] = mapped_column(Text, nullable=False)
     nickname_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    cbu: Mapped[str] = mapped_column(Text, nullable=False)
-    cbu_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    dni: Mapped[str] = mapped_column(Text, nullable=False)
+    dni_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     password: Mapped[str] = mapped_column(Text, nullable=False)
     global_role: Mapped[str] = mapped_column(
         String(50), nullable=False, server_default=text("'User'::character varying")

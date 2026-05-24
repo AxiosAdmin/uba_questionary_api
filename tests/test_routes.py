@@ -132,7 +132,7 @@ def test_users_route_creates_user(client, override_db, monkeypatch):
                 "name": "Pedro Vieira",
                 "email": "pedro@example.com",
                 "nickname": "pedrov",
-                "cbu": "0070010800000001234565",
+                "dni": "12345678",
                 "global_role": "User",
                 "created_at": "2026-05-08T00:00:00",
                 "updated_at": None,
@@ -149,7 +149,7 @@ def test_users_route_creates_user(client, override_db, monkeypatch):
             "name": "Pedro Vieira",
             "email": "pedro@example.com",
             "nickname": "pedrov",
-            "cbu": "0070010800000001234565",
+            "dni": "12345678",
             "password": "secret123",
         },
     )
@@ -164,7 +164,7 @@ def test_users_route_validates_body(client, override_db):
         json={
             "name": "Pedro Vieira",
             "email": "pedro@example.com",
-            "cbu": "0070010800000001234565",
+            "dni": "12345678",
         },
     )
 
@@ -178,7 +178,7 @@ def test_users_route_rejects_weak_password(client, override_db):
             "name": "Pedro Vieira",
             "email": "pedro@example.com",
             "nickname": "pedrov",
-            "cbu": "0070010800000001234565",
+            "dni": "12345678",
             "password": "secret123",
         },
     )
@@ -190,20 +190,20 @@ def test_users_route_rejects_weak_password(client, override_db):
     )
 
 
-def test_users_route_rejects_invalid_cbu(client, override_db):
+def test_users_route_rejects_invalid_dni(client, override_db):
     response = client.post(
         "/users",
         json={
             "name": "Pedro Vieira",
             "email": "pedro@example.com",
             "nickname": "pedrov",
-            "cbu": "0070010800000001234566",
+            "dni": "1234",
             "password": "Secret123!",
         },
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "CBU is invalid"
+    assert response.json()["detail"] == "DNI is invalid"
 
 
 def test_users_me_route_returns_authenticated_user(
@@ -220,7 +220,7 @@ def test_users_me_route_returns_authenticated_user(
                 "name": "Pedro Vieira",
                 "email": "pedro@example.com",
                 "nickname": "pedrov",
-                "cbu": "0070010800000001234565",
+                "dni": "12345678",
                 "global_role": "User",
                 "created_at": "2026-05-08T00:00:00",
                 "updated_at": None,
@@ -246,14 +246,14 @@ def test_users_me_route_updates_authenticated_user(
 
     async def _update_current_user(request_user_id, body, db):
         assert str(request_user_id) == str(user_id)
-        assert body.cbu
+        assert body.dni
         return {
             "data": {
                 "id": str(user_id),
                 "name": "Pedro Vieira",
                 "email": "pedro@example.com",
                 "nickname": "pedrov",
-                "cbu": "0070010800000001234565",
+                "dni": "12345678",
                 "global_role": "User",
                 "created_at": "2026-05-08T00:00:00",
                 "updated_at": "2026-05-24T00:00:00",
@@ -271,7 +271,7 @@ def test_users_me_route_updates_authenticated_user(
             "name": "Pedro Vieira",
             "email": "pedro@example.com",
             "nickname": "pedrov",
-            "cbu": "0070010800000001234565",
+            "dni": "12345678",
         },
         headers=headers,
     )
@@ -451,13 +451,13 @@ def test_stripe_generate_route_returns_checkout_url(client, override_db, monkeyp
     assert response.json() == {"url_session": "https://checkout.stripe.test"}
 
 
-def test_stripe_generate_route_returns_cbu_validation_error(
+def test_stripe_generate_route_returns_dni_validation_error(
     client, override_db, monkeypatch
 ):
     async def _generate_checkout(user_id, db, coupon_code=None):
         return JSONResponse(
             status_code=400,
-            content={"detail": "You must update your CBU before starting the checkout"},
+            content={"detail": "You must update your DNI before starting the checkout"},
         )
 
     monkeypatch.setattr(
@@ -472,7 +472,7 @@ def test_stripe_generate_route_returns_cbu_validation_error(
 
     assert response.status_code == 400
     assert response.json() == {
-        "detail": "You must update your CBU before starting the checkout"
+        "detail": "You must update your DNI before starting the checkout"
     }
 
 

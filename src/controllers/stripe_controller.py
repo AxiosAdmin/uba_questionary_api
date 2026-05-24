@@ -11,12 +11,12 @@ class StripeController:
         checkout_contact = await UserService.get_user_checkout_contact(user_id, db)
 
         if checkout_contact:
-            if checkout_contact.get("has_pending_cbu"):
+            if checkout_contact.get("has_pending_dni"):
                 return JSONResponse(
                     status_code=400,
                     content={
                         "detail": (
-                            "You must update your CBU before starting the checkout"
+                            "You must update your DNI before starting the checkout"
                         )
                     },
                 )

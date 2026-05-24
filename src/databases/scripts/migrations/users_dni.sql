@@ -1,0 +1,27 @@
+ALTER TABLE users
+DROP CONSTRAINT IF EXISTS users_cbu_hash_key;
+
+DROP INDEX IF EXISTS users_cbu_hash_key;
+
+ALTER TABLE users
+DROP COLUMN IF EXISTS cbu_hash;
+
+ALTER TABLE users
+DROP COLUMN IF EXISTS cbu;
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS dni TEXT;
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS dni_hash VARCHAR(64);
+
+UPDATE users
+SET dni = '00000000'
+WHERE dni IS NULL OR BTRIM(dni) = '';
+
+ALTER TABLE users
+ALTER COLUMN dni SET NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_dni_hash_key
+ON users (dni_hash)
+WHERE dni_hash IS NOT NULL;

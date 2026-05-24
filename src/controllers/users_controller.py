@@ -7,7 +7,7 @@ from api_crud_generate_libary.services.service import Service
 from sqlalchemy import or_, select
 
 from src.models import Users
-from src.utils.cbu_utils import CbuUtils
+from src.utils.dni_utils import DniUtils
 from src.utils.fernet_utils import FernetUtils
 from src.utils.password_utils import (
     PASSWORD_REQUIREMENTS_MESSAGE,
@@ -17,11 +17,11 @@ from src.utils.user_lookup_utils import UserLookupUtils
 
 fernet = FernetUtils()
 generic_user_service = Service(Users)
-DUPLICATE_USER_DETAIL = "Nickname, Email or CBU already exists"
-CBU_UPDATE_FORBIDDEN_DETAIL = (
-    "CBU can only be updated for users pending CBU registration"
+DUPLICATE_USER_DETAIL = "Nickname, Email or DNI already exists"
+DNI_UPDATE_FORBIDDEN_DETAIL = (
+    "DNI can only be updated for users pending DNI registration"
 )
-MISSING_CBU_PLACEHOLDER = "0000000000000000000000"
+MISSING_DNI_PLACEHOLDER = "00000000"
 
 
 class UsersController:
@@ -38,15 +38,15 @@ class UsersController:
             ) from exc
 
     @staticmethod
-    def _validate_cbu(encrypted_cbu: str) -> str:
+    def _validate_dni(encrypted_dni: str) -> str:
         try:
-            return CbuUtils.normalize_and_validate(fernet.decrypt(encrypted_cbu))
+            return DniUtils.normalize_and_validate(fernet.decrypt(encrypted_dni))
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail="CBU is invalid") from exc
+            raise HTTPException(status_code=400, detail="DNI is invalid") from exc
 
     @staticmethod
-    async def _find_user_by_cbu_hash(cbu_hash: str, db):
-        result = await db.execute(select(Users).where(Users.cbu_hash == cbu_hash))
+    async def _find_user_by_dni_hash(dni_hash: str, db):
+        result = await db.execute(select(Users).where(Users.dni_hash == dni_hash))
         return result.scalars().first()
 
     @staticmethod
@@ -99,19 +99,19 @@ class UsersController:
         return user
 
     @staticmethod
-    def _get_stored_cbu_value(user) -> str:
-        raw_cbu = getattr(user, "cbu", None)
-        if not raw_cbu:
+    def _get_stored_dni_value(user) -> str:
+        raw_dni = getattr(user, "dni", None)
+        if not raw_dni:
             return ""
 
         try:
-            return fernet.decrypt(raw_cbu)
+            return fernet.decrypt(raw_dni)
         except Exception:  # pylint: disable=broad-exception-caught
-            return raw_cbu
+            return raw_dni
 
     @staticmethod
     async def _validate_unique_profile_fields(
-        current_user_id, plain_email, plain_nickname, cbu_hash, db
+        current_user_id, plain_email, plain_nickname, dni_hash, db
     ):
         email_hash = UserLookupUtils.hash_email(plain_email)
         nickname_hash = UserLookupUtils.hash_nickname(plain_nickname)
@@ -131,8 +131,8 @@ class UsersController:
         ):
             raise HTTPException(status_code=400, detail=DUPLICATE_USER_DETAIL)
 
-        existing_cbu_user = await UsersController._find_user_by_cbu_hash(cbu_hash, db)
-        if existing_cbu_user is not None and existing_cbu_user.id != current_user_id:
+        existing_dni_user = await UsersController._find_user_by_dni_hash(dni_hash, db)
+        if existing_dni_user is not None and existing_dni_user.id != current_user_id:
             raise HTTPException(status_code=400, detail=DUPLICATE_USER_DETAIL)
 
         legacy_duplicate_user = await UsersController._find_legacy_duplicate_user(
@@ -150,22 +150,23 @@ class UsersController:
     async def create_user(body, db):
         """Create a new user in the database after checking for nickname uniqueness."""
         UsersController._validate_password_requirements(body.password)
-        normalized_cbu = UsersController._validate_cbu(body.cbu)
-        cbu_hash = CbuUtils.hash_normalized(normalized_cbu)
+        normalized_dni = UsersController._validate_dni(body.dni)
+        dni_hash = DniUtils.hash_normalized(normalized_dni)
         plain_email = fernet.decrypt(body.email)
         plain_nickname = fernet.decrypt(body.nickname)
         email_hash, nickname_hash = await UsersController._validate_unique_profile_fields(
             None,
             plain_email,
             plain_nickname,
-            cbu_hash,
+            dni_hash,
             db,
         )
 
         new_user_payload = body.model_dump()
+        new_user_payload["dni"] = fernet.encrypt(normalized_dni)
         new_user_payload["email_hash"] = email_hash
         new_user_payload["nickname_hash"] = nickname_hash
-        new_user_payload["cbu_hash"] = cbu_hash
+        new_user_payload["dni_hash"] = dni_hash
         new_user = await generic_user_service.create(
             new_user_payload,
             db,
@@ -185,24 +186,24 @@ class UsersController:
     async def update_current_user(user_id, body, db):
         """Update the authenticated user's public profile fields."""
         user = await UsersController._get_user_or_404(user_id, db)
-        current_cbu = UsersController._get_stored_cbu_value(user)
-        normalized_cbu = UsersController._validate_cbu(body.cbu)
-        if current_cbu != MISSING_CBU_PLACEHOLDER:
-            current_normalized_cbu = CbuUtils.normalize(current_cbu)
-            if normalized_cbu != current_normalized_cbu:
+        current_dni = UsersController._get_stored_dni_value(user)
+        normalized_dni = UsersController._validate_dni(body.dni)
+        if current_dni != MISSING_DNI_PLACEHOLDER:
+            current_normalized_dni = DniUtils.normalize(current_dni)
+            if normalized_dni != current_normalized_dni:
                 raise HTTPException(
                     status_code=400,
-                    detail=CBU_UPDATE_FORBIDDEN_DETAIL,
+                    detail=DNI_UPDATE_FORBIDDEN_DETAIL,
                 )
 
-        cbu_hash = CbuUtils.hash_normalized(normalized_cbu)
+        dni_hash = DniUtils.hash_normalized(normalized_dni)
         plain_email = fernet.decrypt(body.email)
         plain_nickname = fernet.decrypt(body.nickname)
         email_hash, nickname_hash = await UsersController._validate_unique_profile_fields(
             user.id,
             plain_email,
             plain_nickname,
-            cbu_hash,
+            dni_hash,
             db,
         )
 
@@ -211,8 +212,8 @@ class UsersController:
         user.email_hash = email_hash
         user.nickname = body.nickname
         user.nickname_hash = nickname_hash
-        user.cbu = body.cbu
-        user.cbu_hash = cbu_hash
+        user.dni = fernet.encrypt(normalized_dni)
+        user.dni_hash = dni_hash
         user.updated_at = datetime.now()
 
         await db.commit()

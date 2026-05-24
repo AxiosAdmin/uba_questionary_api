@@ -6,7 +6,7 @@ from src.models import Users
 from src.utils.fernet_utils import FernetUtils
 
 fernet_utils = FernetUtils()
-MISSING_CBU_PLACEHOLDER = "0000000000000000000000"
+MISSING_DNI_PLACEHOLDER = "00000000"
 
 
 class UserService:
@@ -41,9 +41,9 @@ class UserService:
             "email": fernet_utils.decrypt(user.email).strip(),
         }
 
-        if getattr(user, "cbu", None):
-            cbu = fernet_utils.decrypt(user.cbu).strip()
-            response["has_pending_cbu"] = cbu == MISSING_CBU_PLACEHOLDER
+        if getattr(user, "dni", None):
+            dni = fernet_utils.decrypt(user.dni).strip()
+            response["has_pending_dni"] = dni == MISSING_DNI_PLACEHOLDER
 
         return response
 

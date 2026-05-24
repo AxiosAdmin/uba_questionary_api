@@ -309,7 +309,7 @@ def test_users_controller_create_user_rejects_duplicate_nickname(monkeypatch):
         name="Pedro Vieira",
         email="pedro@example.com",
         nickname="pedrov",
-        cbu="0070010800000001234565",
+        dni="12345678",
         password="Secret123!",
     )
 
@@ -325,7 +325,7 @@ def test_users_controller_create_user_rejects_duplicate_nickname(monkeypatch):
     )
     monkeypatch.setattr(
         UsersController,
-        "_find_user_by_cbu_hash",
+        "_find_user_by_dni_hash",
         staticmethod(lambda *args, **kwargs: asyncio.sleep(0, result=None)),
     )
     monkeypatch.setattr(
@@ -338,7 +338,7 @@ def test_users_controller_create_user_rejects_duplicate_nickname(monkeypatch):
         asyncio.run(UsersController.create_user(body, db))
     except HTTPException as exc:
         assert exc.status_code == 400
-        assert exc.detail == "Nickname, Email or CBU already exists"
+        assert exc.detail == "Nickname, Email or DNI already exists"
     else:
         assert False, "Expected duplicate user error"
 
@@ -348,7 +348,7 @@ def test_users_controller_create_user_persists_unique_user(monkeypatch):
         name="Pedro Vieira",
         email="pedro@example.com",
         nickname="pedrov",
-        cbu="0070010800000001234565",
+        dni="12345678",
         password="Secret123!",
     )
     created_user = SimpleNamespace(id=uuid4())
@@ -375,7 +375,7 @@ def test_users_controller_create_user_persists_unique_user(monkeypatch):
     )
     monkeypatch.setattr(
         UsersController,
-        "_find_user_by_cbu_hash",
+        "_find_user_by_dni_hash",
         staticmethod(lambda *args, **kwargs: asyncio.sleep(0, result=None)),
     )
     monkeypatch.setattr(
@@ -389,7 +389,7 @@ def test_users_controller_create_user_persists_unique_user(monkeypatch):
     assert response == {"data": created_user}
     assert "email_hash" in captured["payload"]
     assert "nickname_hash" in captured["payload"]
-    assert "cbu_hash" in captured["payload"]
+    assert "dni_hash" in captured["payload"]
 
 
 def test_users_controller_create_user_rejects_weak_password():
@@ -397,7 +397,7 @@ def test_users_controller_create_user_rejects_weak_password():
         name="Pedro Vieira",
         email="pedro@example.com",
         nickname="pedrov",
-        cbu="0070010800000001234565",
+        dni="12345678",
         password="secret123",
     )
 
@@ -414,12 +414,12 @@ def test_users_controller_create_user_rejects_weak_password():
         assert False, "Expected weak password validation error"
 
 
-def test_users_controller_create_user_rejects_invalid_cbu():
+def test_users_controller_create_user_rejects_invalid_dni():
     body = UsersPost(
         name="Pedro Vieira",
         email="pedro@example.com",
         nickname="pedrov",
-        cbu="0070010800000001234566",
+        dni="1234",
         password="Secret123!",
     )
 
@@ -427,21 +427,21 @@ def test_users_controller_create_user_rejects_invalid_cbu():
         asyncio.run(UsersController.create_user(body, FakeAsyncSession()))
     except HTTPException as exc:
         assert exc.status_code == 400
-        assert exc.detail == "CBU is invalid"
+        assert exc.detail == "DNI is invalid"
     else:
-        assert False, "Expected invalid CBU validation error"
+        assert False, "Expected invalid DNI validation error"
 
 
-def test_users_controller_create_user_rejects_duplicate_cbu(monkeypatch):
+def test_users_controller_create_user_rejects_duplicate_dni(monkeypatch):
     body = UsersPost(
         name="Pedro Vieira",
         email="pedro@example.com",
         nickname="pedrov",
-        cbu="0070010800000001234565",
+        dni="12345678",
         password="Secret123!",
     )
 
-    async def _find_by_cbu_hash(*args, **kwargs):
+    async def _find_by_dni_hash(*args, **kwargs):
         return SimpleNamespace(id=uuid4())
 
     monkeypatch.setattr(
@@ -456,8 +456,8 @@ def test_users_controller_create_user_rejects_duplicate_cbu(monkeypatch):
     )
     monkeypatch.setattr(
         UsersController,
-        "_find_user_by_cbu_hash",
-        staticmethod(_find_by_cbu_hash),
+        "_find_user_by_dni_hash",
+        staticmethod(_find_by_dni_hash),
     )
     monkeypatch.setattr(
         UsersController,
@@ -469,9 +469,9 @@ def test_users_controller_create_user_rejects_duplicate_cbu(monkeypatch):
         asyncio.run(UsersController.create_user(body, FakeAsyncSession()))
     except HTTPException as exc:
         assert exc.status_code == 400
-        assert exc.detail == "Nickname, Email or CBU already exists"
+        assert exc.detail == "Nickname, Email or DNI already exists"
     else:
-        assert False, "Expected duplicate CBU error"
+        assert False, "Expected duplicate DNI error"
 
 
 def test_users_controller_create_user_rejects_legacy_duplicate_email(monkeypatch):
@@ -479,7 +479,7 @@ def test_users_controller_create_user_rejects_legacy_duplicate_email(monkeypatch
         name="Pedro Vieira",
         email="pedro@example.com",
         nickname="pedrov",
-        cbu="0070010800000001234565",
+        dni="12345678",
         password="Secret123!",
     )
 
@@ -495,7 +495,7 @@ def test_users_controller_create_user_rejects_legacy_duplicate_email(monkeypatch
     )
     monkeypatch.setattr(
         UsersController,
-        "_find_user_by_cbu_hash",
+        "_find_user_by_dni_hash",
         staticmethod(lambda *args, **kwargs: asyncio.sleep(0, result=None)),
     )
     monkeypatch.setattr(
@@ -508,7 +508,7 @@ def test_users_controller_create_user_rejects_legacy_duplicate_email(monkeypatch
         asyncio.run(UsersController.create_user(body, FakeAsyncSession()))
 
     assert exc.value.status_code == 400
-    assert exc.value.detail == "Nickname, Email or CBU already exists"
+    assert exc.value.detail == "Nickname, Email or DNI already exists"
 
 
 def test_users_controller_get_current_user_returns_user(monkeypatch):
@@ -540,7 +540,7 @@ def test_users_controller_find_user_by_hash_helpers_return_matches():
         ]
     )
 
-    found_by_cbu = asyncio.run(UsersController._find_user_by_cbu_hash("hash-1", db))
+    found_by_dni = asyncio.run(UsersController._find_user_by_dni_hash("hash-1", db))
     found_by_email = asyncio.run(
         UsersController._find_user_by_email_hash("hash-2", db)
     )
@@ -548,7 +548,7 @@ def test_users_controller_find_user_by_hash_helpers_return_matches():
         UsersController._find_user_by_nickname_hash("hash-3", db)
     )
 
-    assert found_by_cbu is expected_user
+    assert found_by_dni is expected_user
     assert found_by_email is expected_user
     assert found_by_nickname is expected_user
 
@@ -619,9 +619,9 @@ def test_users_controller_get_user_or_404_raises_when_missing():
     assert exc.value.detail == "User not found"
 
 
-def test_users_controller_get_stored_cbu_value_handles_missing_and_plain_values():
-    assert UsersController._get_stored_cbu_value(SimpleNamespace(cbu=None)) == ""
-    assert UsersController._get_stored_cbu_value(SimpleNamespace(cbu="plain-text")) == (
+def test_users_controller_get_stored_dni_value_handles_missing_and_plain_values():
+    assert UsersController._get_stored_dni_value(SimpleNamespace(dni=None)) == ""
+    assert UsersController._get_stored_dni_value(SimpleNamespace(dni="plain-text")) == (
         "plain-text"
     )
 
@@ -641,7 +641,7 @@ def test_users_controller_validate_unique_profile_fields_rejects_duplicates(monk
     )
     monkeypatch.setattr(
         UsersController,
-        "_find_user_by_cbu_hash",
+        "_find_user_by_dni_hash",
         staticmethod(lambda *args, **kwargs: asyncio.sleep(0, result=None)),
     )
     monkeypatch.setattr(
@@ -656,12 +656,12 @@ def test_users_controller_validate_unique_profile_fields_rejects_duplicates(monk
                 None,
                 "pedro@example.com",
                 "pedrov",
-                "cbu-hash",
+                "dni-hash",
                 FakeAsyncSession(),
             )
         )
 
-    assert exc_email.value.detail == "Nickname, Email or CBU already exists"
+    assert exc_email.value.detail == "Nickname, Email or DNI already exists"
 
     monkeypatch.setattr(
         UsersController,
@@ -680,12 +680,12 @@ def test_users_controller_validate_unique_profile_fields_rejects_duplicates(monk
                 None,
                 "pedro@example.com",
                 "pedrov",
-                "cbu-hash",
+                "dni-hash",
                 FakeAsyncSession(),
             )
         )
 
-    assert exc_nickname.value.detail == "Nickname, Email or CBU already exists"
+    assert exc_nickname.value.detail == "Nickname, Email or DNI already exists"
 
 
 def test_users_controller_update_current_user_updates_hashes_and_fields(monkeypatch):
@@ -697,15 +697,15 @@ def test_users_controller_update_current_user_updates_hashes_and_fields(monkeypa
         email_hash="old-email-hash",
         nickname="old-nickname",
         nickname_hash="old-nickname-hash",
-        cbu="0000000000000000000000",
-        cbu_hash="old-cbu-hash",
+        dni="00000000",
+        dni_hash="old-dni-hash",
         updated_at=None,
     )
     body = SimpleNamespace(
         name=FernetUtils().encrypt("Pedro Vieira"),
         email=FernetUtils().encrypt("pedro@example.com"),
         nickname=FernetUtils().encrypt("pedrov"),
-        cbu=FernetUtils().encrypt("0070010800000001234565"),
+        dni=FernetUtils().encrypt("12345678"),
     )
     fake_db = FakeAsyncSession()
 
@@ -714,12 +714,12 @@ def test_users_controller_update_current_user_updates_hashes_and_fields(monkeypa
         return existing_user
 
     async def _validate_unique_profile_fields(
-        current_user_id, plain_email, plain_nickname, cbu_hash, db
+        current_user_id, plain_email, plain_nickname, dni_hash, db
     ):
         assert current_user_id == user_id
         assert plain_email == "pedro@example.com"
         assert plain_nickname == "pedrov"
-        assert cbu_hash
+        assert dni_hash
         return "email-hash", "nickname-hash"
 
     monkeypatch.setattr(
@@ -741,28 +741,28 @@ def test_users_controller_update_current_user_updates_hashes_and_fields(monkeypa
     assert existing_user.name == body.name
     assert existing_user.email == body.email
     assert existing_user.nickname == body.nickname
-    assert existing_user.cbu == body.cbu
+    assert FernetUtils().decrypt(existing_user.dni) == "12345678"
     assert existing_user.email_hash == "email-hash"
     assert existing_user.nickname_hash == "nickname-hash"
-    assert existing_user.cbu_hash
+    assert existing_user.dni_hash
     assert existing_user.updated_at is not None
     assert fake_db.committed is True
     assert fake_db.refreshed == [existing_user]
 
 
-def test_users_controller_update_current_user_rejects_cbu_change_for_non_placeholder(
+def test_users_controller_update_current_user_rejects_dni_change_for_non_placeholder(
     monkeypatch,
 ):
     user_id = uuid4()
     existing_user = SimpleNamespace(
         id=user_id,
-        cbu=FernetUtils().encrypt("0070010800000001234565"),
+        dni=FernetUtils().encrypt("12345678"),
     )
     body = SimpleNamespace(
         name=FernetUtils().encrypt("Pedro Vieira"),
         email=FernetUtils().encrypt("pedro@example.com"),
         nickname=FernetUtils().encrypt("pedrov"),
-        cbu=FernetUtils().encrypt("0720169720000001183376"),
+        dni=FernetUtils().encrypt("23456789"),
     )
 
     async def _get_user_or_404(request_user_id, db):
@@ -776,8 +776,8 @@ def test_users_controller_update_current_user_rejects_cbu_change_for_non_placeho
     )
     monkeypatch.setattr(
         UsersController,
-        "_validate_cbu",
-        staticmethod(lambda encrypted_cbu: "0720169720000001183376"),
+        "_validate_dni",
+        staticmethod(lambda encrypted_dni: "23456789"),
     )
 
     with pytest.raises(HTTPException) as exc:
@@ -786,7 +786,7 @@ def test_users_controller_update_current_user_rejects_cbu_change_for_non_placeho
         )
 
     assert exc.value.status_code == 400
-    assert exc.value.detail == "CBU can only be updated for users pending CBU registration"
+    assert exc.value.detail == "DNI can only be updated for users pending DNI registration"
 
 
 def test_ai_anatomy_controller_rejects_invalid_institution_id():
@@ -1069,7 +1069,7 @@ def test_stripe_controller_generate_payment_checkout_returns_url(monkeypatch):
             result={
                 "id": uuid4(),
                 "email": "pedro@example.com",
-                "has_pending_cbu": False,
+                "has_pending_dni": False,
             },
         ),
     )
@@ -1113,7 +1113,7 @@ def test_stripe_controller_generate_payment_checkout_returns_404_when_user_missi
     assert response.body == b'{"message":"User doesn\'t exists"}'
 
 
-def test_stripe_controller_generate_payment_checkout_rejects_pending_cbu(
+def test_stripe_controller_generate_payment_checkout_rejects_pending_dni(
     monkeypatch,
 ):
     monkeypatch.setattr(
@@ -1123,7 +1123,7 @@ def test_stripe_controller_generate_payment_checkout_rejects_pending_cbu(
             result={
                 "id": uuid4(),
                 "email": "pedro@example.com",
-                "has_pending_cbu": True,
+                "has_pending_dni": True,
             },
         ),
     )
@@ -1135,7 +1135,7 @@ def test_stripe_controller_generate_payment_checkout_rejects_pending_cbu(
     assert response.status_code == 400
     assert (
         response.body
-        == b'{"detail":"You must update your CBU before starting the checkout"}'
+        == b'{"detail":"You must update your DNI before starting the checkout"}'
     )
 
 
@@ -1149,7 +1149,7 @@ def test_stripe_controller_generate_payment_checkout_returns_400_for_invalid_cou
             result={
                 "id": uuid4(),
                 "email": "pedro@example.com",
-                "has_pending_cbu": False,
+                "has_pending_dni": False,
             },
         ),
     )

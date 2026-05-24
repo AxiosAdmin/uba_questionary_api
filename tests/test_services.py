@@ -675,12 +675,12 @@ def test_user_service_parse_user_id_handles_uuid_and_invalid_value():
     assert exc.value.detail == "Incorrect Id format"
 
 
-def test_user_service_get_user_checkout_contact_handles_missing_user_and_placeholder_cbu():
+def test_user_service_get_user_checkout_contact_handles_missing_user_and_placeholder_dni():
     fernet = FernetUtils()
     pending_user = SimpleNamespace(
         id=uuid4(),
         email=fernet.encrypt("pedro@example.com"),
-        cbu=fernet.encrypt("0000000000000000000000"),
+        dni=fernet.encrypt("00000000"),
     )
     db_missing = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[])])
     db_pending = FakeAsyncSession(
@@ -696,7 +696,7 @@ def test_user_service_get_user_checkout_contact_handles_missing_user_and_placeho
     assert pending == {
         "id": pending_user.id,
         "email": "pedro@example.com",
-        "has_pending_cbu": True,
+        "has_pending_dni": True,
     }
 
 
