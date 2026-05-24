@@ -14,7 +14,9 @@ stripe_router = APIRouter()
 async def generate_payment_checkout(
     body: GenerateCheckoutRequestSchema, db: AsyncSession = Depends(get_db)
 ):
-    response = await StripeController.generate_payment_checkout(body.user_id, db)
+    response = await StripeController.generate_payment_checkout(
+        body.user_id, db, body.coupon_code
+    )
     return response
 
 

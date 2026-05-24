@@ -39,14 +39,16 @@ class UsersPost(UsersBase):
                 "name": "Pedro Vieira",
                 "email": "email@2mail.com",
                 "nickname": "janedoe",
+                "cbu": "0070010800000001234565",
                 "password": "newpassword456",
             }
         },
     )
 
+    cbu: str
     password: str
 
-    @field_validator("name", "email", "nickname", "password", mode="before")
+    @field_validator("name", "email", "nickname", "cbu", "password", mode="before")
     @classmethod
     def encrypt_fields(cls, value: str) -> str:
         """
@@ -58,6 +60,33 @@ class UsersPost(UsersBase):
         Returns:
             str: Encrypted value
         """
+        if not value:
+            return value
+
+        return FernetUtils().encrypt(value)
+
+
+class UsersProfileUpdate(UsersBase):
+    """Schema for updating public user profile fields."""
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "name": "Pedro Vieira",
+                "email": "email@2mail.com",
+                "nickname": "janedoe",
+                "cbu": "0070010800000001234565",
+            }
+        },
+    )
+
+    cbu: str
+
+    @field_validator("name", "email", "nickname", "cbu", mode="before")
+    @classmethod
+    def encrypt_fields(cls, value: str) -> str:
+        """Encrypt profile fields before saving to the database."""
         if not value:
             return value
 
@@ -81,8 +110,9 @@ class UsersGet(UsersBase):
 
     id: UUID
     global_role: str
+    cbu: str
 
-    @field_validator("name", "email", "nickname", mode="after")
+    @field_validator("name", "email", "nickname", "cbu", mode="after")
     @classmethod
     def decrypt_fields(cls, value: str) -> str:
         """
@@ -120,9 +150,10 @@ class UsersNoPasswordResponse(BaseModel):
     id: UUID
     name: str
     nickname: str
+    cbu: str | None = None
     global_role: str
 
-    @field_validator("name", "nickname", mode="after")
+    @field_validator("name", "nickname", "cbu", mode="after")
     @classmethod
     def decrypt_fields(cls, value: str) -> str:
         """
@@ -160,8 +191,9 @@ class UsersLoginResponse(BaseModel):
     id: UUID
     name: str
     nickname: str
+    cbu: str | None = None
 
-    @field_validator("name", "nickname", mode="after")
+    @field_validator("name", "nickname", "cbu", mode="after")
     @classmethod
     def decrypt_fields(cls, value: str) -> str:
         """

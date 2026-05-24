@@ -7,14 +7,30 @@ from src.services.user_service import UserService
 class StripeController:
 
     @staticmethod
-    async def generate_payment_checkout(user_id, db):
+    async def generate_payment_checkout(user_id, db, coupon_code=None):
         checkout_contact = await UserService.get_user_checkout_contact(user_id, db)
 
         if checkout_contact:
-            response = StripeService.generate_payment_checkout(
-                checkout_contact["id"],
-                customer_email=checkout_contact["email"],
-            )
+            if checkout_contact.get("has_pending_cbu"):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "detail": (
+                            "You must update your CBU before starting the checkout"
+                        )
+                    },
+                )
+            try:
+                response = StripeService.generate_payment_checkout(
+                    checkout_contact["id"],
+                    customer_email=checkout_contact["email"],
+                    coupon_code=coupon_code,
+                )
+            except ValueError as exc:
+                return JSONResponse(
+                    status_code=400,
+                    content={"message": str(exc)},
+                )
             return response
 
         return JSONResponse(

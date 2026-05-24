@@ -6,6 +6,7 @@ from src.models import Users
 from src.utils.fernet_utils import FernetUtils
 
 fernet_utils = FernetUtils()
+MISSING_CBU_PLACEHOLDER = "0000000000000000000000"
 
 
 class UserService:
@@ -35,10 +36,16 @@ class UserService:
         if user is None:
             return None
 
-        return {
+        response = {
             "id": user.id,
             "email": fernet_utils.decrypt(user.email).strip(),
         }
+
+        if getattr(user, "cbu", None):
+            cbu = fernet_utils.decrypt(user.cbu).strip()
+            response["has_pending_cbu"] = cbu == MISSING_CBU_PLACEHOLDER
+
+        return response
 
     @staticmethod
     async def check_user_existance(user_id, db):

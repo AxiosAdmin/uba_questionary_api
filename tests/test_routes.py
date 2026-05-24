@@ -1,8 +1,8 @@
 import importlib
-from types import SimpleNamespace
 from uuid import uuid4
 
 import jwt
+from fastapi.responses import JSONResponse
 
 stripe_router_module = importlib.import_module("src.routers.stripe_router")
 
@@ -12,7 +12,7 @@ def test_registered_route_matrix(app):
         (method, route.path)
         for route in app.routes
         for method in getattr(route, "methods", set())
-        if method in {"GET", "POST"}
+        if method in {"GET", "POST", "PUT"}
     }
 
     assert ("GET", "/healthy") in registered
@@ -20,6 +20,8 @@ def test_registered_route_matrix(app):
     assert ("POST", "/forgot-password") in registered
     assert ("POST", "/reset-password") in registered
     assert ("POST", "/users") in registered
+    assert ("GET", "/users/me") in registered
+    assert ("PUT", "/users/me") in registered
     assert ("GET", "/question-answers/latest-answers") in registered
     assert ("POST", "/question-answers") in registered
     assert ("GET", "/institutions") in registered
@@ -130,6 +132,7 @@ def test_users_route_creates_user(client, override_db, monkeypatch):
                 "name": "Pedro Vieira",
                 "email": "pedro@example.com",
                 "nickname": "pedrov",
+                "cbu": "0070010800000001234565",
                 "global_role": "User",
                 "created_at": "2026-05-08T00:00:00",
                 "updated_at": None,
@@ -146,6 +149,7 @@ def test_users_route_creates_user(client, override_db, monkeypatch):
             "name": "Pedro Vieira",
             "email": "pedro@example.com",
             "nickname": "pedrov",
+            "cbu": "0070010800000001234565",
             "password": "secret123",
         },
     )
@@ -157,7 +161,11 @@ def test_users_route_creates_user(client, override_db, monkeypatch):
 def test_users_route_validates_body(client, override_db):
     response = client.post(
         "/users",
-        json={"name": "Pedro Vieira", "email": "pedro@example.com"},
+        json={
+            "name": "Pedro Vieira",
+            "email": "pedro@example.com",
+            "cbu": "0070010800000001234565",
+        },
     )
 
     assert response.status_code == 422
@@ -170,6 +178,7 @@ def test_users_route_rejects_weak_password(client, override_db):
             "name": "Pedro Vieira",
             "email": "pedro@example.com",
             "nickname": "pedrov",
+            "cbu": "0070010800000001234565",
             "password": "secret123",
         },
     )
@@ -179,6 +188,96 @@ def test_users_route_rejects_weak_password(client, override_db):
         "Password must be at least 8 characters long and contain at least one "
         "uppercase letter, one lowercase letter, one number, and one special character"
     )
+
+
+def test_users_route_rejects_invalid_cbu(client, override_db):
+    response = client.post(
+        "/users",
+        json={
+            "name": "Pedro Vieira",
+            "email": "pedro@example.com",
+            "nickname": "pedrov",
+            "cbu": "0070010800000001234566",
+            "password": "Secret123!",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "CBU is invalid"
+
+
+def test_users_me_route_returns_authenticated_user(
+    client, override_db, authorize_request, monkeypatch
+):
+    user_id = uuid4()
+    headers, _ = authorize_request(user_id=user_id)
+
+    async def _get_current_user(request_user_id, db):
+        assert str(request_user_id) == str(user_id)
+        return {
+            "data": {
+                "id": str(user_id),
+                "name": "Pedro Vieira",
+                "email": "pedro@example.com",
+                "nickname": "pedrov",
+                "cbu": "0070010800000001234565",
+                "global_role": "User",
+                "created_at": "2026-05-08T00:00:00",
+                "updated_at": None,
+            }
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.users_controller.UsersController.get_current_user",
+        _get_current_user,
+    )
+
+    response = client.get("/users/me", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["data"]["email"] == "pedro@example.com"
+
+
+def test_users_me_route_updates_authenticated_user(
+    client, override_db, authorize_request, monkeypatch
+):
+    user_id = uuid4()
+    headers, _ = authorize_request(user_id=user_id)
+
+    async def _update_current_user(request_user_id, body, db):
+        assert str(request_user_id) == str(user_id)
+        assert body.cbu
+        return {
+            "data": {
+                "id": str(user_id),
+                "name": "Pedro Vieira",
+                "email": "pedro@example.com",
+                "nickname": "pedrov",
+                "cbu": "0070010800000001234565",
+                "global_role": "User",
+                "created_at": "2026-05-08T00:00:00",
+                "updated_at": "2026-05-24T00:00:00",
+            }
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.users_controller.UsersController.update_current_user",
+        _update_current_user,
+    )
+
+    response = client.put(
+        "/users/me",
+        json={
+            "name": "Pedro Vieira",
+            "email": "pedro@example.com",
+            "nickname": "pedrov",
+            "cbu": "0070010800000001234565",
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["updated_at"] == "2026-05-24T00:00:00"
 
 
 def test_question_answers_latest_answers_requires_authorization(client, override_db):
@@ -334,7 +433,8 @@ def test_question_answers_latest_answers_validates_query_params(
 
 
 def test_stripe_generate_route_returns_checkout_url(client, override_db, monkeypatch):
-    async def _generate_checkout(user_id, db):
+    async def _generate_checkout(user_id, db, coupon_code=None):
+        assert coupon_code == "PROMO-UBA"
         return {"url_session": "https://checkout.stripe.test"}
 
     monkeypatch.setattr(
@@ -342,10 +442,38 @@ def test_stripe_generate_route_returns_checkout_url(client, override_db, monkeyp
         _generate_checkout,
     )
 
-    response = client.post("/stripe/generate", json={"user_id": str(uuid4())})
+    response = client.post(
+        "/stripe/generate",
+        json={"user_id": str(uuid4()), "coupon_code": "PROMO-UBA"},
+    )
 
     assert response.status_code == 200
     assert response.json() == {"url_session": "https://checkout.stripe.test"}
+
+
+def test_stripe_generate_route_returns_cbu_validation_error(
+    client, override_db, monkeypatch
+):
+    async def _generate_checkout(user_id, db, coupon_code=None):
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "You must update your CBU before starting the checkout"},
+        )
+
+    monkeypatch.setattr(
+        "src.controllers.stripe_controller.StripeController.generate_payment_checkout",
+        _generate_checkout,
+    )
+
+    response = client.post(
+        "/stripe/generate",
+        json={"user_id": str(uuid4())},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "You must update your CBU before starting the checkout"
+    }
 
 
 def test_stripe_generate_route_validates_uuid(client, override_db):

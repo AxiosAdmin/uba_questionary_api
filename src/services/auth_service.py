@@ -13,6 +13,7 @@ from src.services.user_institution_service import UserInstitutionService
 from src.utils.fernet_utils import FernetUtils
 from src.utils.jwt_utils import JWTUtils
 from src.utils.password_utils import validate_password_requirements
+from src.utils.user_lookup_utils import UserLookupUtils
 
 fernet_utils = FernetUtils()
 ACTIVE_SUBSCRIPTION_STATUSES = {"active"}
@@ -22,19 +23,63 @@ class AuthService:
     """Service for handling user authentication operations."""
 
     @staticmethod
-    async def _get_all_users(db):
-        result = await db.execute(select(Users))
-        return result.scalars().all()
-
-    @staticmethod
     async def _find_user_by_email(email: str, db):
-        normalized_email = email.strip().casefold()
+        email_hash = UserLookupUtils.hash_email(email)
+        result = await db.execute(select(Users).where(Users.email_hash == email_hash))
+        user = result.scalars().first()
+        if user is not None:
+            return user
 
-        for user in await AuthService._get_all_users(db):
-            if fernet_utils.decrypt(user.email).strip().casefold() == normalized_email:
+        normalized_email = UserLookupUtils.normalize_email(email)
+        result = await db.execute(select(Users).where(Users.email_hash.is_(None)))
+        for user in result.scalars().all():
+            if (
+                UserLookupUtils.normalize_email(fernet_utils.decrypt(user.email))
+                == normalized_email
+            ):
+                await AuthService._ensure_lookup_hashes(user, db)
                 return user
 
         return None
+
+    @staticmethod
+    async def _find_user_by_nickname(nickname: str, db):
+        nickname_hash = UserLookupUtils.hash_nickname(nickname)
+        result = await db.execute(
+            select(Users).where(Users.nickname_hash == nickname_hash)
+        )
+        user = result.scalars().first()
+        if user is not None:
+            return user
+
+        normalized_nickname = UserLookupUtils.normalize_nickname(nickname)
+        result = await db.execute(select(Users).where(Users.nickname_hash.is_(None)))
+        for user in result.scalars().all():
+            if (
+                UserLookupUtils.normalize_nickname(fernet_utils.decrypt(user.nickname))
+                == normalized_nickname
+            ):
+                await AuthService._ensure_lookup_hashes(user, db)
+                return user
+
+        return None
+
+    @staticmethod
+    async def _ensure_lookup_hashes(user, db):
+        updated = False
+
+        if getattr(user, "email_hash", None) is None:
+            user.email_hash = UserLookupUtils.hash_email(fernet_utils.decrypt(user.email))
+            updated = True
+
+        if getattr(user, "nickname_hash", None) is None:
+            user.nickname_hash = UserLookupUtils.hash_nickname(
+                fernet_utils.decrypt(user.nickname)
+            )
+            updated = True
+
+        if updated:
+            await db.commit()
 
     @staticmethod
     async def _find_user_by_id(user_id, db):
@@ -72,25 +117,20 @@ class AuthService:
         Raises:
             ValueError: If nickname or password is invalid
         """
-        data = await AuthService._get_all_users(db)
-
-        for user in data:
-            if (
-                fernet_utils.decrypt(user.nickname) == nickname
-                and fernet_utils.decrypt(user.password) == password
-            ):
-                if user.global_role == "Admin":
-                    return user
-
-                uba_institution = await InstitutionsService.get_uba_institution(db)
-                user_institutions = await UserInstitutionService.read_user_institutions(
-                    user.id, uba_institution.id, db
-                )
-
-                if user_institutions:
-                    return user_institutions
-
+        user = await AuthService._find_user_by_nickname(nickname, db)
+        if user and fernet_utils.decrypt(user.password) == password:
+            if user.global_role == "Admin":
                 return user
+
+            uba_institution = await InstitutionsService.get_uba_institution(db)
+            user_institutions = await UserInstitutionService.read_user_institutions(
+                user.id, uba_institution.id, db
+            )
+
+            if user_institutions:
+                return user_institutions
+
+            return user
 
         raise ValueError("Invalid nickname or password")
 

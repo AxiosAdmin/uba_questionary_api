@@ -21,6 +21,7 @@ from src.services.stripe_service import StripeService
 from src.services.subscription_service import SubscriptionService
 from src.services.user_service import UserService
 from src.utils.fernet_utils import FernetUtils
+from src.utils.user_lookup_utils import UserLookupUtils
 from tests.conftest import FakeAsyncSession, FakeExecuteResult
 
 
@@ -30,7 +31,9 @@ def _build_user(global_role="User"):
         id=uuid4(),
         name=fernet.encrypt("Pedro Vieira"),
         email=fernet.encrypt("pedro@example.com"),
+        email_hash=UserLookupUtils.hash_email("pedro@example.com"),
         nickname=fernet.encrypt("pedrov"),
+        nickname_hash=UserLookupUtils.hash_nickname("pedrov"),
         password=fernet.encrypt("secret123"),
         global_role=global_role,
     )
@@ -175,11 +178,71 @@ def test_auth_service_request_password_reset_returns_token():
 
 def test_auth_service_request_password_reset_returns_none_for_unknown_email():
     user = _build_user()
-    db = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[user])])
+    db = FakeAsyncSession(
+        execute_results=[
+            FakeExecuteResult(scalars_items=[]),
+            FakeExecuteResult(scalars_items=[user]),
+        ]
+    )
 
     token = asyncio.run(AuthService.request_password_reset("missing@example.com", db))
 
     assert token is None
+
+
+def test_auth_service_login_fallbacks_to_legacy_user_and_backfills_hashes(monkeypatch):
+    fernet = FernetUtils()
+    legacy_user = SimpleNamespace(
+        id=uuid4(),
+        name=fernet.encrypt("Pedro Vieira"),
+        email=fernet.encrypt("pedro@example.com"),
+        email_hash=None,
+        nickname=fernet.encrypt("pedrov"),
+        nickname_hash=None,
+        password=fernet.encrypt("secret123"),
+        global_role="Admin",
+    )
+    db = FakeAsyncSession(
+        execute_results=[
+            FakeExecuteResult(scalars_items=[]),
+            FakeExecuteResult(scalars_items=[legacy_user]),
+        ]
+    )
+
+    response = asyncio.run(AuthService.login("pedrov", "secret123", db))
+
+    assert response is legacy_user
+    assert legacy_user.email_hash == UserLookupUtils.hash_email("pedro@example.com")
+    assert legacy_user.nickname_hash == UserLookupUtils.hash_nickname("pedrov")
+    assert db.committed is True
+
+
+def test_auth_service_request_password_reset_fallbacks_to_legacy_user(monkeypatch):
+    fernet = FernetUtils()
+    legacy_user = SimpleNamespace(
+        id=uuid4(),
+        name=fernet.encrypt("Pedro Vieira"),
+        email=fernet.encrypt("pedro@example.com"),
+        email_hash=None,
+        nickname=fernet.encrypt("pedrov"),
+        nickname_hash=None,
+        password=fernet.encrypt("secret123"),
+        global_role="User",
+    )
+    db = FakeAsyncSession(
+        execute_results=[
+            FakeExecuteResult(scalars_items=[]),
+            FakeExecuteResult(scalars_items=[legacy_user]),
+        ]
+    )
+
+    token = asyncio.run(AuthService.request_password_reset("pedro@example.com", db))
+    payload = AuthService.reset_password.__globals__["JWTUtils"].decode_jwt(token)
+
+    assert payload["sub"] == str(legacy_user.id)
+    assert legacy_user.email_hash == UserLookupUtils.hash_email("pedro@example.com")
+    assert legacy_user.nickname_hash == UserLookupUtils.hash_nickname("pedrov")
+    assert db.committed is True
 
 
 def test_auth_service_reset_password_updates_encrypted_password():
@@ -597,6 +660,43 @@ def test_user_service_get_user_checkout_contact_decrypts_user_data():
     assert response == {
         "id": user.id,
         "email": "pedro@example.com",
+    }
+
+
+def test_user_service_parse_user_id_handles_uuid_and_invalid_value():
+    user_id = uuid4()
+
+    assert UserService._parse_user_id(user_id) == user_id
+
+    with pytest.raises(HTTPException) as exc:
+        UserService._parse_user_id("invalid-uuid")
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Incorrect Id format"
+
+
+def test_user_service_get_user_checkout_contact_handles_missing_user_and_placeholder_cbu():
+    fernet = FernetUtils()
+    pending_user = SimpleNamespace(
+        id=uuid4(),
+        email=fernet.encrypt("pedro@example.com"),
+        cbu=fernet.encrypt("0000000000000000000000"),
+    )
+    db_missing = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[])])
+    db_pending = FakeAsyncSession(
+        execute_results=[FakeExecuteResult(scalars_items=[pending_user])]
+    )
+
+    missing = asyncio.run(UserService.get_user_checkout_contact(str(uuid4()), db_missing))
+    pending = asyncio.run(
+        UserService.get_user_checkout_contact(str(pending_user.id), db_pending)
+    )
+
+    assert missing is None
+    assert pending == {
+        "id": pending_user.id,
+        "email": "pedro@example.com",
+        "has_pending_cbu": True,
     }
 
 
@@ -1224,6 +1324,10 @@ def test_stripe_service_generate_payment_checkout_builds_expected_payload(monkey
         "src.services.stripe_service.stripe_client.v1.checkout.sessions.create",
         _create,
     )
+    monkeypatch.setattr(
+        "src.services.stripe_service.StripeService._resolve_promotion_code_id",
+        staticmethod(lambda coupon_code: None),
+    )
 
     response = StripeService.generate_payment_checkout(
         uuid4(), customer_email="pedro@example.com"
@@ -1232,6 +1336,7 @@ def test_stripe_service_generate_payment_checkout_builds_expected_payload(monkey
     assert response == {"url_session": "https://checkout.stripe.test"}
     assert captured["payload"]["mode"] == "payment"
     assert captured["payload"]["adaptive_pricing"] == {"enabled": True}
+    assert captured["payload"]["allow_promotion_codes"] is True
     assert "billing_address_collection" not in captured["payload"]
     assert captured["payload"]["customer_creation"] == "always"
     assert captured["payload"]["customer_email"] == "pedro@example.com"
@@ -1245,6 +1350,79 @@ def test_stripe_service_generate_payment_checkout_builds_expected_payload(monkey
         captured["payload"]["payment_method_options"]["card"]["request_three_d_secure"]
         == "automatic"
     )
+
+
+def test_stripe_service_generate_payment_checkout_applies_coupon_code(monkeypatch):
+    captured = {}
+
+    def _create(payload):
+        captured["payload"] = payload
+        return SimpleNamespace(url="https://checkout.stripe.test")
+
+    monkeypatch.setattr(
+        "src.services.stripe_service.stripe_client.v1.checkout.sessions.create",
+        _create,
+    )
+    monkeypatch.setattr(
+        "src.services.stripe_service.StripeService._resolve_promotion_code_id",
+        staticmethod(lambda coupon_code: "promo_123"),
+    )
+
+    response = StripeService.generate_payment_checkout(
+        uuid4(),
+        customer_email="pedro@example.com",
+        coupon_code="PROMO-UBA",
+    )
+
+    assert response == {"url_session": "https://checkout.stripe.test"}
+    assert captured["payload"]["discounts"] == [{"promotion_code": "promo_123"}]
+    assert captured["payload"]["allow_promotion_codes"] is False
+
+
+def test_stripe_service_resolve_promotion_code_id_rejects_missing_code(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.stripe_service.stripe_client.v1.promotion_codes.list",
+        lambda payload: {"data": []},
+    )
+
+    try:
+        StripeService._resolve_promotion_code_id("PROMO-UBA")
+    except ValueError as exc:
+        assert str(exc) == "Coupon code is invalid or inactive"
+    else:
+        assert False, "Expected invalid coupon error"
+
+
+def test_stripe_service_resolve_promotion_code_id_returns_none_for_blank_code():
+    assert StripeService._resolve_promotion_code_id("   ") is None
+
+
+def test_stripe_service_resolve_promotion_code_id_returns_matching_id(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.stripe_service.stripe_client.v1.promotion_codes.list",
+        lambda payload: {"data": [{"id": "promo_123"}]},
+    )
+
+    assert StripeService._resolve_promotion_code_id("PROMO-UBA") == "promo_123"
+
+
+def test_stripe_service_normalize_payload_handles_to_dict_recursive_and_items_fallback():
+    class ToDictRecursiveOnly:
+        def to_dict_recursive(self):
+            return {"nested": {"value": 1}}
+
+    class ItemsRaisingTypeError:
+        def items(self):
+            raise TypeError("unsupported items")
+
+    normalized_recursive = StripeService._normalize_stripe_payload(
+        ToDictRecursiveOnly()
+    )
+    fallback_payload = ItemsRaisingTypeError()
+    normalized_fallback = StripeService._normalize_stripe_payload(fallback_payload)
+
+    assert normalized_recursive == {"nested": {"value": 1}}
+    assert normalized_fallback is fallback_payload
 
 
 def test_stripe_service_get_uba_context_returns_institution_and_profile():

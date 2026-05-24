@@ -14,9 +14,11 @@ from src.helpers.questions_text import (
     SPLACHNOLOGY_DESCRIPTIONS,
 )
 from src.schemas.users_schemas import UsersGet, UsersPost
+from src.utils.cbu_utils import CbuUtils
 from src.utils.constraints import should_bypass_auth
 from src.utils.fernet_utils import FernetUtils
 from src.utils.jwt_utils import JWTUtils
+from src.utils.user_lookup_utils import UserLookupUtils
 
 
 def test_should_bypass_auth_for_public_routes():
@@ -54,6 +56,7 @@ def test_users_post_encrypts_sensitive_fields():
         name="Pedro Vieira",
         email="pedro@example.com",
         nickname="pedrov",
+        cbu="0070010800000001234565",
         password="secret123",
     )
     fernet = FernetUtils()
@@ -61,10 +64,12 @@ def test_users_post_encrypts_sensitive_fields():
     assert body.name != "Pedro Vieira"
     assert body.email != "pedro@example.com"
     assert body.nickname != "pedrov"
+    assert body.cbu != "0070010800000001234565"
     assert body.password != "secret123"
     assert fernet.decrypt(body.name) == "Pedro Vieira"
     assert fernet.decrypt(body.email) == "pedro@example.com"
     assert fernet.decrypt(body.nickname) == "pedrov"
+    assert fernet.decrypt(body.cbu) == "0070010800000001234565"
     assert fernet.decrypt(body.password) == "secret123"
 
 
@@ -76,6 +81,7 @@ def test_users_get_decrypts_sensitive_fields():
         name=fernet.encrypt("Pedro Vieira"),
         email=fernet.encrypt("pedro@example.com"),
         nickname=fernet.encrypt("pedrov"),
+        cbu=fernet.encrypt("0070010800000001234565"),
         global_role="User",
         created_at=datetime.now(),
         updated_at=None,
@@ -84,6 +90,7 @@ def test_users_get_decrypts_sensitive_fields():
     assert user.name == "Pedro Vieira"
     assert user.email == "pedro@example.com"
     assert user.nickname == "pedrov"
+    assert user.cbu == "0070010800000001234565"
 
 
 def test_users_get_decrypt_fields_returns_original_on_invalid_value():
@@ -104,6 +111,57 @@ def test_users_login_response_decrypt_fields_returns_original_on_invalid_value()
 
 def test_users_post_encrypt_fields_returns_empty_value():
     assert UsersPost.encrypt_fields("") == ""
+
+
+def test_cbu_utils_normalize_and_validate_accepts_valid_cbu():
+    assert (
+        CbuUtils.normalize_and_validate("0070010800000001234565")
+        == "0070010800000001234565"
+    )
+
+
+def test_cbu_utils_normalize_and_validate_rejects_invalid_cbu():
+    try:
+        CbuUtils.normalize_and_validate("0070010800000001234566")
+    except ValueError as exc:
+        assert "invalid" in str(exc).lower()
+    else:
+        assert False, "Expected invalid CBU error"
+
+
+def test_cbu_utils_normalize_and_validate_rejects_invalid_length_and_bank_code():
+    with_error = []
+
+    for invalid_cbu in ("123", "0000010800000001234565"):
+        try:
+            CbuUtils.normalize_and_validate(invalid_cbu)
+        except ValueError as exc:
+            with_error.append(str(exc))
+
+    assert "exactly 22 digits" in with_error[0]
+    assert "bank code is invalid" in with_error[1]
+
+
+def test_cbu_utils_normalize_and_validate_rejects_invalid_first_check_digit():
+    try:
+        CbuUtils.normalize_and_validate("1070010800000001234565")
+    except ValueError as exc:
+        assert "first block verification digit is invalid" in str(exc)
+    else:
+        assert False, "Expected first block validation error"
+
+
+def test_user_lookup_utils_hash_email_normalizes_case_and_spaces():
+    first_hash = UserLookupUtils.hash_email(" Pedro@Example.com ")
+    second_hash = UserLookupUtils.hash_email("pedro@example.com")
+
+    assert first_hash == second_hash
+
+
+def test_user_lookup_utils_hash_nickname_preserves_current_case_sensitivity():
+    assert UserLookupUtils.hash_nickname("pedrov") != UserLookupUtils.hash_nickname(
+        "PedroV"
+    )
 
 
 def test_check_anatomy_sub_topic_for_locomotor(monkeypatch):

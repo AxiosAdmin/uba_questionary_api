@@ -2,7 +2,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from src.schemas.user_institution_schema import UserInstitutionSchema
+from src.schemas.user_institution_schema import UserInstitutionSchemaJoin
 from src.schemas.users_schemas import UsersNoPasswordResponse
 
 
@@ -94,7 +94,7 @@ class LoginResponseSchema(BaseModel):
         },
     )
 
-    user: UserInstitutionSchema
+    user: UserInstitutionSchemaJoin
     token: str
     question_generation_usage: Optional[QuestionGenerationUsageSchema] = None
 
