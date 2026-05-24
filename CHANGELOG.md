@@ -1,3 +1,8 @@
+## v1.14.0
+
+- Integrated cupons to the application
+- Added CBU column to the user
+
 ## v1.13.1
 
 - Fixed webhooks listener route

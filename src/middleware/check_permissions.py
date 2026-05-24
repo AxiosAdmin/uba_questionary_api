@@ -10,6 +10,10 @@ users_service = Service(Users)
 SUBSCRIPTION_EXEMPT_ROUTES = {
     ("GET", "/question-answers/latest-answers"),
 }
+SELF_SERVICE_ROUTES = {
+    ("GET", "/users/me"),
+    ("PUT", "/users/me"),
+}
 
 
 def _permission_error_detail(error: Exception) -> str | dict | list:
@@ -50,6 +54,9 @@ async def check_permissions(institution_id, user_id, method, url_path, db):
         return True
 
     normalized_route = (method.upper(), url_path.rstrip("/") or "/")
+
+    if normalized_route in SELF_SERVICE_ROUTES:
+        return True
 
     if (
         normalized_route not in SUBSCRIPTION_EXEMPT_ROUTES

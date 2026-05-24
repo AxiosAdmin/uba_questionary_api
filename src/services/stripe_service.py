@@ -46,16 +46,35 @@ class StripeService:
         return payload
 
     @staticmethod
-    def generate_payment_checkout(user_id, customer_email=None):
+    def _resolve_promotion_code_id(coupon_code):
+        normalized_coupon_code = (coupon_code or "").strip()
+        if not normalized_coupon_code:
+            return None
+
+        promotion_codes = stripe_client.v1.promotion_codes.list(
+            {"code": normalized_coupon_code, "active": True, "limit": 1}
+        )
+        normalized_response = StripeService._normalize_stripe_payload(promotion_codes)
+        promotion_codes_data = normalized_response.get("data", [])
+
+        if not promotion_codes_data:
+            raise ValueError("Coupon code is invalid or inactive")
+
+        return promotion_codes_data[0].get("id")
+
+    @staticmethod
+    def generate_payment_checkout(user_id, customer_email=None, coupon_code=None):
         user_id_str = str(user_id)
         metadata = {
             "user_id": user_id_str,
             "price_id": settings.DEFAULT_PRICE_ID,
         }
+        promotion_code_id = StripeService._resolve_promotion_code_id(coupon_code)
         stripe_payload = {
             "mode": "payment",
             "line_items": [{"price": settings.DEFAULT_PRICE_ID, "quantity": 1}],
             "adaptive_pricing": {"enabled": True},
+            "allow_promotion_codes": promotion_code_id is None,
             "customer_creation": "always",
             "invoice_creation": {"enabled": True},
             "locale": "es",
@@ -71,6 +90,9 @@ class StripeService:
         if customer_email:
             stripe_payload["customer_email"] = customer_email
             stripe_payload["payment_intent_data"]["receipt_email"] = customer_email
+
+        if promotion_code_id is not None:
+            stripe_payload["discounts"] = [{"promotion_code": promotion_code_id}]
 
         stripe_session = stripe_client.v1.checkout.sessions.create(stripe_payload)
 
@@ -451,13 +473,13 @@ class StripeService:
         )
 
     @staticmethod
-    async def charge_succeeded(data):
+    async def charge_succeeded(data, db=None):
         return StripeService._build_monitoring_response(
             data, category="charge_succeeded"
         )
 
     @staticmethod
-    async def charge_failed(data):
+    async def charge_failed(data, db=None):
         return StripeService._build_monitoring_response(
             data,
             category="charge_failed",
@@ -465,11 +487,11 @@ class StripeService:
         )
 
     @staticmethod
-    async def charge_updated(data):
+    async def charge_updated(data, db=None):
         return StripeService._build_monitoring_response(data, category="charge_updated")
 
     @staticmethod
-    async def charge_dispute_created(data):
+    async def charge_dispute_created(data, db=None):
         return StripeService._build_monitoring_response(
             data,
             category="charge_dispute_created",
@@ -477,13 +499,13 @@ class StripeService:
         )
 
     @staticmethod
-    async def charge_dispute_closed(data):
+    async def charge_dispute_closed(data, db=None):
         return StripeService._build_monitoring_response(
             data, category="charge_dispute_closed"
         )
 
     @staticmethod
-    async def radar_early_fraud_warning_created(data):
+    async def radar_early_fraud_warning_created(data, db=None):
         return StripeService._build_monitoring_response(
             data,
             category="early_fraud_warning",
@@ -491,7 +513,7 @@ class StripeService:
         )
 
     @staticmethod
-    async def customer_subscription_created(data):
+    async def customer_subscription_created(data, db=None):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -499,7 +521,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def customer_subscription_updated(data):
+    async def customer_subscription_updated(data, db=None):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -507,7 +529,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def customer_subscription_paused(data):
+    async def customer_subscription_paused(data, db=None):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -515,7 +537,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def customer_subscription_resumed(data):
+    async def customer_subscription_resumed(data, db=None):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -523,7 +545,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def invoice_payment_succeeded(data):
+    async def invoice_payment_succeeded(data, db=None):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -531,7 +553,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def invoice_paid(data):
+    async def invoice_paid(data, db=None):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -539,7 +561,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def invoice_payment_failed(data):
+    async def invoice_payment_failed(data, db=None):
         return {
             "status": "ignored",
             "reason": "unsupported_event",
@@ -547,7 +569,7 @@ class StripeService:
         }
 
     @staticmethod
-    async def customer_subscription_deleted(data):
+    async def customer_subscription_deleted(data, db=None):
         return {
             "status": "ignored",
             "reason": "unsupported_event",

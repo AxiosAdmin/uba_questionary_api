@@ -21,12 +21,19 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID DEFAULT gen_random_uuid() NOT NULL,
     name TEXT NOT NULL,
     email TEXT NOT NULL,
+    email_hash VARCHAR(64) NOT NULL,
     nickname TEXT NOT NULL,
+    nickname_hash VARCHAR(64) NOT NULL,
+    cbu TEXT NOT NULL,
+    cbu_hash VARCHAR(64) NOT NULL,
     password TEXT NOT NULL,
     global_role VARCHAR(50) DEFAULT 'User'::character varying NOT NULL,
     created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now() NOT NULL,
     updated_at TIMESTAMP WITHOUT TIME ZONE,
-    CONSTRAINT users_pkey PRIMARY KEY (id)
+    CONSTRAINT users_pkey PRIMARY KEY (id),
+    CONSTRAINT users_email_hash_key UNIQUE (email_hash),
+    CONSTRAINT users_nickname_hash_key UNIQUE (nickname_hash),
+    CONSTRAINT users_cbu_hash_key UNIQUE (cbu_hash)
 );
 
 CREATE TABLE IF NOT EXISTS questions (
