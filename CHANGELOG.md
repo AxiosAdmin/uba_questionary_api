@@ -1,3 +1,9 @@
+## v1.15.0
+
+- Added stripe_customer_id relation with user to validate cupom usage
+- Added admin route to the new admin application
+- Added a route to manually send emails to the users
+
 ## v1.14.1
 
 - Changed from CBU to DNI because one user could have more than one CBU but just one DNI
