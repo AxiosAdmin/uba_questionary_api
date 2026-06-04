@@ -42,6 +42,17 @@ async def login(body: LoginSchema, db: AsyncSession = Depends(get_db)):
 
 
 @auth_router.post(
+    "/login/admin",
+    response_model=LoginAdminResponseSchema,
+)
+async def login_admin(body: LoginSchema, db: AsyncSession = Depends(get_db)):
+    """Handle admin-only login requests."""
+    response, token = await AuthController.login_admin(body.nickname, body.password, db)
+    response["token"] = token
+    return response
+
+
+@auth_router.post(
     "/forgot-password",
     response_model=ForgotPasswordResponseSchema,
 )

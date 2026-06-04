@@ -1,12 +1,17 @@
 """Controller for Users table"""
 
 from datetime import datetime
+import logging
+import re
+from uuid import uuid4
 
 from fastapi import HTTPException
 from api_crud_generate_libary.services.service import Service
 from sqlalchemy import or_, select
+from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
 from src.models import Users
+from src.services.stripe_service import StripeService
 from src.utils.dni_utils import DniUtils
 from src.utils.fernet_utils import FernetUtils
 from src.utils.password_utils import (
@@ -17,15 +22,77 @@ from src.utils.user_lookup_utils import UserLookupUtils
 
 fernet = FernetUtils()
 generic_user_service = Service(Users)
+logger = logging.getLogger(__name__)
 DUPLICATE_USER_DETAIL = "Nickname, Email or DNI already exists"
 DNI_UPDATE_FORBIDDEN_DETAIL = (
     "DNI can only be updated for users pending DNI registration"
 )
 MISSING_DNI_PLACEHOLDER = "00000000"
+STRIPE_CUSTOMER_CREATION_UNAVAILABLE_DETAIL = (
+    "Stripe customer creation is unavailable. Try again later."
+)
+OUTDATED_DATABASE_SCHEMA_DETAIL = (
+    "Database schema is outdated. Run the pending migrations and try again."
+)
+DATABASE_OPERATION_UNAVAILABLE_DETAIL = (
+    "User persistence is temporarily unavailable. Try again later."
+)
+MISSING_COLUMN_MIGRATIONS = {
+    "users.email_hash": "src/databases/scripts/migrations/users_cbu.sql",
+    "users.nickname_hash": "src/databases/scripts/migrations/users_cbu.sql",
+    "users.dni": "src/databases/scripts/migrations/users_dni.sql",
+    "users.dni_hash": "src/databases/scripts/migrations/users_dni.sql",
+    "users.stripe_customer_id": (
+        "src/databases/scripts/migrations/users_stripe_customer_id.sql"
+    ),
+}
 
 
 class UsersController:
     """Controller class for handling user-related operations."""
+
+    @staticmethod
+    def _get_programming_error_detail(exc: Exception) -> str:
+        """Return a more actionable detail for known schema mismatches."""
+        error_message = str(exc)
+        column_match = re.search(r"column\s+([a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)\s+does not exist", error_message)
+        if not column_match:
+            return OUTDATED_DATABASE_SCHEMA_DETAIL
+
+        missing_column = column_match.group(1)
+        migration_path = MISSING_COLUMN_MIGRATIONS.get(missing_column)
+
+        if migration_path:
+            return (
+                f"Database schema mismatch: missing column {missing_column}. "
+                f"Run the migration `{migration_path}` and try again."
+            )
+
+        return (
+            f"Database schema mismatch: missing column {missing_column}. "
+            "Run the pending migrations and try again."
+        )
+
+    @staticmethod
+    async def _raise_handled_database_error(db, action: str, exc: Exception):
+        """Rollback and translate persistence errors to handled HTTP responses."""
+        try:
+            await db.rollback()
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+
+        if isinstance(exc, ProgrammingError):
+            logger.warning("UsersController %s failed: %s", action, exc)
+            raise HTTPException(
+                status_code=503,
+                detail=UsersController._get_programming_error_detail(exc),
+            ) from None
+
+        logger.warning("UsersController %s failed: %s", action, exc)
+        raise HTTPException(
+            status_code=503,
+            detail=DATABASE_OPERATION_UNAVAILABLE_DETAIL,
+        ) from None
 
     @staticmethod
     def _validate_password_requirements(encrypted_password: str) -> None:
@@ -149,30 +216,55 @@ class UsersController:
     @staticmethod
     async def create_user(body, db):
         """Create a new user in the database after checking for nickname uniqueness."""
-        UsersController._validate_password_requirements(body.password)
-        normalized_dni = UsersController._validate_dni(body.dni)
-        dni_hash = DniUtils.hash_normalized(normalized_dni)
-        plain_email = fernet.decrypt(body.email)
-        plain_nickname = fernet.decrypt(body.nickname)
-        email_hash, nickname_hash = await UsersController._validate_unique_profile_fields(
-            None,
-            plain_email,
-            plain_nickname,
-            dni_hash,
-            db,
-        )
+        try:
+            UsersController._validate_password_requirements(body.password)
+            normalized_dni = UsersController._validate_dni(body.dni)
+            dni_hash = DniUtils.hash_normalized(normalized_dni)
+            plain_email = fernet.decrypt(body.email)
+            plain_nickname = fernet.decrypt(body.nickname)
+            email_hash, nickname_hash = (
+                await UsersController._validate_unique_profile_fields(
+                    None,
+                    plain_email,
+                    plain_nickname,
+                    dni_hash,
+                    db,
+                )
+            )
+            plain_name = fernet.decrypt(body.name)
+            new_user_id = uuid4()
 
-        new_user_payload = body.model_dump()
-        new_user_payload["dni"] = fernet.encrypt(normalized_dni)
-        new_user_payload["email_hash"] = email_hash
-        new_user_payload["nickname_hash"] = nickname_hash
-        new_user_payload["dni_hash"] = dni_hash
-        new_user = await generic_user_service.create(
-            new_user_payload,
-            db,
-            join_parameters=None,
-            second_level_join_parameters=None,
-        )
+            try:
+                stripe_customer_id = StripeService.create_customer(
+                    user_id=new_user_id,
+                    customer_email=plain_email,
+                    customer_name=plain_name,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                raise HTTPException(
+                    status_code=503,
+                    detail=STRIPE_CUSTOMER_CREATION_UNAVAILABLE_DETAIL,
+                ) from exc
+
+            new_user_payload = body.model_dump()
+            new_user_payload["id"] = new_user_id
+            new_user_payload["dni"] = fernet.encrypt(normalized_dni)
+            new_user_payload["email_hash"] = email_hash
+            new_user_payload["nickname_hash"] = nickname_hash
+            new_user_payload["dni_hash"] = dni_hash
+            new_user_payload["stripe_customer_id"] = stripe_customer_id
+            new_user = await generic_user_service.create(
+                new_user_payload,
+                db,
+                join_parameters=None,
+                second_level_join_parameters=None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except SQLAlchemyError as exc:
+            await UsersController._raise_handled_database_error(db, "create_user", exc)
 
         return {"data": new_user}
 
@@ -185,38 +277,45 @@ class UsersController:
     @staticmethod
     async def update_current_user(user_id, body, db):
         """Update the authenticated user's public profile fields."""
-        user = await UsersController._get_user_or_404(user_id, db)
-        current_dni = UsersController._get_stored_dni_value(user)
-        normalized_dni = UsersController._validate_dni(body.dni)
-        if current_dni != MISSING_DNI_PLACEHOLDER:
-            current_normalized_dni = DniUtils.normalize(current_dni)
-            if normalized_dni != current_normalized_dni:
-                raise HTTPException(
-                    status_code=400,
-                    detail=DNI_UPDATE_FORBIDDEN_DETAIL,
+        try:
+            user = await UsersController._get_user_or_404(user_id, db)
+            current_dni = UsersController._get_stored_dni_value(user)
+            normalized_dni = UsersController._validate_dni(body.dni)
+            if current_dni != MISSING_DNI_PLACEHOLDER:
+                current_normalized_dni = DniUtils.normalize(current_dni)
+                if normalized_dni != current_normalized_dni:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=DNI_UPDATE_FORBIDDEN_DETAIL,
+                    )
+
+            dni_hash = DniUtils.hash_normalized(normalized_dni)
+            plain_email = fernet.decrypt(body.email)
+            plain_nickname = fernet.decrypt(body.nickname)
+            email_hash, nickname_hash = (
+                await UsersController._validate_unique_profile_fields(
+                    user.id,
+                    plain_email,
+                    plain_nickname,
+                    dni_hash,
+                    db,
                 )
+            )
 
-        dni_hash = DniUtils.hash_normalized(normalized_dni)
-        plain_email = fernet.decrypt(body.email)
-        plain_nickname = fernet.decrypt(body.nickname)
-        email_hash, nickname_hash = await UsersController._validate_unique_profile_fields(
-            user.id,
-            plain_email,
-            plain_nickname,
-            dni_hash,
-            db,
-        )
+            user.name = body.name
+            user.email = body.email
+            user.email_hash = email_hash
+            user.nickname = body.nickname
+            user.nickname_hash = nickname_hash
+            user.dni = fernet.encrypt(normalized_dni)
+            user.dni_hash = dni_hash
+            user.updated_at = datetime.now()
 
-        user.name = body.name
-        user.email = body.email
-        user.email_hash = email_hash
-        user.nickname = body.nickname
-        user.nickname_hash = nickname_hash
-        user.dni = fernet.encrypt(normalized_dni)
-        user.dni_hash = dni_hash
-        user.updated_at = datetime.now()
-
-        await db.commit()
-        await db.refresh(user)
+            await db.commit()
+            await db.refresh(user)
+        except SQLAlchemyError as exc:
+            await UsersController._raise_handled_database_error(
+                db, "update_current_user", exc
+            )
 
         return {"data": user}

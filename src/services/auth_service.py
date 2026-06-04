@@ -135,6 +135,16 @@ class AuthService:
         raise ValueError("Invalid nickname or password")
 
     @staticmethod
+    async def login_admin(nickname: str, password: str, db):
+        """Authenticate a user and require the Admin global role."""
+        user = await AuthService.login(nickname, password, db)
+
+        if getattr(user, "global_role", None) != "Admin":
+            raise PermissionError("Admin access is required")
+
+        return user
+
+    @staticmethod
     async def request_password_reset(email: str, db):
         """Generate a temporary password reset token for an existing user."""
         user = await AuthService._find_user_by_email(email, db)

@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str | None = None
     SMTP_FROM_EMAIL: str
     SMTP_FROM_NAME: str
+    SUPPORT_EMAIL: str | None = None
 
     FRONTEND_ORIGINS: list[str] = [
         "http://localhost:3000",

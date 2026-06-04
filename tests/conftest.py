@@ -48,10 +48,12 @@ class FakeExecuteResult:
 
 
 class FakeAsyncSession:
-    def __init__(self, execute_results=None, commit_error=None):
+    def __init__(self, execute_results=None, scalar_results=None, commit_error=None):
         self.execute_results = list(execute_results or [])
+        self.scalar_results = list(scalar_results or [])
         self.commit_error = commit_error
         self.executed_queries = []
+        self.scalar_queries = []
         self.added = []
         self.deleted = []
         self.refreshed = []
@@ -64,6 +66,12 @@ class FakeAsyncSession:
         if self.execute_results:
             return self.execute_results.pop(0)
         return FakeExecuteResult()
+
+    async def scalar(self, query):
+        self.scalar_queries.append(query)
+        if self.scalar_results:
+            return self.scalar_results.pop(0)
+        return None
 
     def add(self, item):
         self.added.append(item)

@@ -39,6 +39,7 @@ class UserService:
         response = {
             "id": user.id,
             "email": fernet_utils.decrypt(user.email).strip(),
+            "stripe_customer_id": getattr(user, "stripe_customer_id", None),
         }
 
         if getattr(user, "dni", None):

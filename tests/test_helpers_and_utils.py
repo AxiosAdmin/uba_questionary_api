@@ -82,6 +82,7 @@ def test_users_get_decrypts_sensitive_fields():
         email=fernet.encrypt("pedro@example.com"),
         nickname=fernet.encrypt("pedrov"),
         dni=fernet.encrypt("12345678"),
+        stripe_customer_id="cus_123",
         global_role="User",
         created_at=datetime.now(),
         updated_at=None,
@@ -91,6 +92,7 @@ def test_users_get_decrypts_sensitive_fields():
     assert user.email == "pedro@example.com"
     assert user.nickname == "pedrov"
     assert user.dni == "12345678"
+    assert user.stripe_customer_id == "cus_123"
 
 
 def test_users_get_decrypt_fields_returns_original_on_invalid_value():

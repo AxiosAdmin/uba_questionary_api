@@ -13,6 +13,7 @@ from src.models.models import Questions, Subscriptions
 from src.schemas.questions_schemas import OnlyQuestionsGetSchema
 from src.services.ai_anatomy_service import AIAnatomyService
 from src.services.ai_biology_service import AIBiologyService
+from src.services.admin_service import AdminService
 from src.services.auth_service import AuthService
 from src.services.email_service import EmailService
 from src.services.question_answers_service import QuestionAnswersService
@@ -35,6 +36,7 @@ def _build_user(global_role="User"):
         nickname=fernet.encrypt("pedrov"),
         nickname_hash=UserLookupUtils.hash_nickname("pedrov"),
         password=fernet.encrypt("secret123"),
+        stripe_customer_id=None,
         global_role=global_role,
     )
 
@@ -91,6 +93,20 @@ def test_auth_service_login_returns_admin_user():
     response = asyncio.run(AuthService.login("pedrov", "secret123", db))
 
     assert response is admin_user
+
+
+def test_auth_service_login_admin_requires_admin_role(monkeypatch):
+    regular_user = _build_user(global_role="User")
+
+    async def _login(*args, **kwargs):
+        return regular_user
+
+    monkeypatch.setattr(AuthService, "login", staticmethod(_login))
+
+    with pytest.raises(PermissionError) as exc:
+        asyncio.run(AuthService.login_admin("pedrov", "secret123", FakeAsyncSession()))
+
+    assert str(exc.value) == "Admin access is required"
 
 
 def test_auth_service_login_returns_uba_user_institution(monkeypatch):
@@ -163,6 +179,60 @@ def test_auth_service_login_rejects_invalid_credentials():
         assert str(exc) == "Invalid nickname or password"
     else:
         assert False, "Expected invalid credentials error"
+
+
+def test_admin_service_get_inactive_plan_recipients_decrypts_contacts():
+    fernet = FernetUtils()
+    user = SimpleNamespace(
+        id=uuid4(),
+        name=fernet.encrypt("Pedro Vieira"),
+        email=fernet.encrypt("pedro@example.com"),
+    )
+    db = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[user])])
+
+    recipients = asyncio.run(AdminService.get_inactive_plan_recipients(db, limit=10))
+
+    assert recipients == [
+        {
+            "user_id": str(user.id),
+            "name": "Pedro Vieira",
+            "email": "pedro@example.com",
+        }
+    ]
+
+
+def test_admin_service_get_campaign_audience_label_returns_known_label():
+    assert (
+        AdminService.get_campaign_audience_label("never_paid")
+        == "Usuarios que nunca pagaram"
+    )
+
+
+def test_admin_service_require_admin_rejects_non_admin(monkeypatch):
+    async def _find_user(*args, **kwargs):
+        return SimpleNamespace(id=uuid4(), global_role="User")
+
+    monkeypatch.setattr(AdminService.require_admin.__globals__["AuthService"], "_find_user_by_id", _find_user)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(AdminService.require_admin(uuid4(), FakeAsyncSession()))
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "Admin access is required."
+
+
+def test_admin_service_get_user_payment_summary_counts_segments():
+    db = FakeAsyncSession(scalar_results=[20, 9, 6, 5])
+
+    summary = asyncio.run(AdminService.get_user_payment_summary(db))
+
+    assert summary == {
+        "total_registered_users": 20,
+        "never_paid_users": 9,
+        "paid_without_active_subscription_users": 6,
+        "active_subscription_users": 5,
+        "users_without_active_subscription": 15,
+    }
 
 
 def test_auth_service_request_password_reset_returns_token():
@@ -307,6 +377,47 @@ def test_email_service_builds_password_reset_url(monkeypatch):
     assert "link de redefinicao de senha" in message.get_content()
     assert 'href="https://app.example.com/reset-password?token=reset-token"' in (
         message.get_content()
+    )
+
+
+def test_email_service_builds_inactive_plan_follow_up_message(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+            SUPPORT_EMAIL="support@example.com",
+        ),
+    )
+
+    message = EmailService._build_inactive_plan_follow_up_message(
+        recipient="pedro@example.com",
+        recipient_name="Pedro",
+        subject="Sentimos sua falta",
+        body="Queria entender o que esta faltando.\nPode responder este email.",
+    )
+
+    assert message["Reply-To"] == "support@example.com"
+    assert message["Subject"] == "Sentimos sua falta"
+    assert "Pode responder este email." in message.get_content()
+
+
+def test_email_service_rejects_multiple_recipients_in_single_message():
+    with pytest.raises(RuntimeError) as exc:
+        EmailService._normalize_single_recipient(
+            ["pedro@example.com", "jane@example.com"]
+        )
+
+    assert str(exc.value) == "Email delivery accepts only one recipient per message."
+
+    with pytest.raises(RuntimeError) as exc_multiple_string:
+        EmailService._normalize_single_recipient(
+            "pedro@example.com, jane@example.com"
+        )
+
+    assert (
+        str(exc_multiple_string.value)
+        == "Email delivery accepts only one recipient per message."
     )
 
 
@@ -652,6 +763,7 @@ def test_user_service_get_user_checkout_contact_decrypts_user_data():
         id=uuid4(),
         email=fernet.encrypt("pedro@example.com"),
         name=fernet.encrypt("Pedro Vieira"),
+        stripe_customer_id="cus_123",
     )
     db = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[user])])
 
@@ -660,6 +772,7 @@ def test_user_service_get_user_checkout_contact_decrypts_user_data():
     assert response == {
         "id": user.id,
         "email": "pedro@example.com",
+        "stripe_customer_id": "cus_123",
     }
 
 
@@ -681,6 +794,7 @@ def test_user_service_get_user_checkout_contact_handles_missing_user_and_placeho
         id=uuid4(),
         email=fernet.encrypt("pedro@example.com"),
         dni=fernet.encrypt("00000000"),
+        stripe_customer_id=None,
     )
     db_missing = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[])])
     db_pending = FakeAsyncSession(
@@ -696,6 +810,7 @@ def test_user_service_get_user_checkout_contact_handles_missing_user_and_placeho
     assert pending == {
         "id": pending_user.id,
         "email": "pedro@example.com",
+        "stripe_customer_id": None,
         "has_pending_dni": True,
     }
 
@@ -1313,6 +1428,21 @@ def test_stripe_service_normalize_subscription_status():
     assert StripeService._normalize_subscription_status("unknown") == "incomplete"
 
 
+def test_stripe_service_create_customer_returns_customer_id(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.stripe_service.stripe_client.v1.customers.create",
+        lambda payload: {"id": "cus_123", "metadata": payload["metadata"]},
+    )
+
+    customer_id = StripeService.create_customer(
+        user_id=uuid4(),
+        customer_email="pedro@example.com",
+        customer_name="Pedro Vieira",
+    )
+
+    assert customer_id == "cus_123"
+
+
 def test_stripe_service_generate_payment_checkout_builds_expected_payload(monkeypatch):
     captured = {}
 
@@ -1377,6 +1507,37 @@ def test_stripe_service_generate_payment_checkout_applies_coupon_code(monkeypatc
     assert response == {"url_session": "https://checkout.stripe.test"}
     assert captured["payload"]["discounts"] == [{"promotion_code": "promo_123"}]
     assert captured["payload"]["allow_promotion_codes"] is False
+
+
+def test_stripe_service_generate_payment_checkout_uses_existing_customer(monkeypatch):
+    captured = {}
+
+    def _create(payload):
+        captured["payload"] = payload
+        return SimpleNamespace(url="https://checkout.stripe.test")
+
+    monkeypatch.setattr(
+        "src.services.stripe_service.stripe_client.v1.checkout.sessions.create",
+        _create,
+    )
+    monkeypatch.setattr(
+        "src.services.stripe_service.StripeService._resolve_promotion_code_id",
+        staticmethod(lambda coupon_code: None),
+    )
+
+    response = StripeService.generate_payment_checkout(
+        uuid4(),
+        customer_email="pedro@example.com",
+        stripe_customer_id="cus_existing",
+    )
+
+    assert response == {"url_session": "https://checkout.stripe.test"}
+    assert captured["payload"]["customer"] == "cus_existing"
+    assert "customer_creation" not in captured["payload"]
+    assert "customer_email" not in captured["payload"]
+    assert captured["payload"]["payment_intent_data"]["receipt_email"] == (
+        "pedro@example.com"
+    )
 
 
 def test_stripe_service_resolve_promotion_code_id_rejects_missing_code(monkeypatch):
@@ -1775,9 +1936,13 @@ def test_stripe_service_sync_checkout_session_purchase_ignores_missing_user(
 def test_stripe_service_sync_checkout_session_purchase_processes_payload(monkeypatch):
     subscription = SimpleNamespace(stripe_subscription_id="cs_123", status="active")
     db = FakeAsyncSession()
+    user = SimpleNamespace(id=uuid4(), stripe_customer_id=None)
 
     async def _existing(*args, **kwargs):
         return SimpleNamespace(user_id=uuid4())
+
+    async def _get_user_by_id(*args, **kwargs):
+        return user
 
     async def _upsert_subscription(**kwargs):
         return subscription, "updated"
@@ -1788,6 +1953,7 @@ def test_stripe_service_sync_checkout_session_purchase_processes_payload(monkeyp
     monkeypatch.setattr(
         StripeService, "_get_subscription_by_stripe_id", staticmethod(_existing)
     )
+    monkeypatch.setattr(StripeService, "_get_user_by_id", staticmethod(_get_user_by_id))
     monkeypatch.setattr(
         StripeService, "_upsert_subscription", staticmethod(_upsert_subscription)
     )
@@ -1816,6 +1982,7 @@ def test_stripe_service_sync_checkout_session_purchase_processes_payload(monkeyp
     assert response["status"] == "processed"
     assert response["subscription_action"] == "updated"
     assert response["access_action"] == "created"
+    assert user.stripe_customer_id == "cus_123"
 
 
 def test_stripe_service_checkout_session_completed_ignores_missing_user():
@@ -1846,12 +2013,16 @@ def test_stripe_service_checkout_session_completed_updates_existing_subscription
     async def _existing(*args, **kwargs):
         return existing
 
+    async def _get_user_by_id(*args, **kwargs):
+        return SimpleNamespace(id=uuid4(), stripe_customer_id=None)
+
     async def _sync_access(*args, **kwargs):
         return "updated"
 
     monkeypatch.setattr(
         StripeService, "_get_subscription_by_stripe_id", staticmethod(_existing)
     )
+    monkeypatch.setattr(StripeService, "_get_user_by_id", staticmethod(_get_user_by_id))
     monkeypatch.setattr(
         StripeService, "_sync_user_access_for_user", staticmethod(_sync_access)
     )
@@ -1883,6 +2054,9 @@ def test_stripe_service_checkout_session_completed_creates_subscription(monkeypa
     async def _existing(*args, **kwargs):
         return None
 
+    async def _get_user_by_id(*args, **kwargs):
+        return SimpleNamespace(id=uuid4(), stripe_customer_id=None)
+
     async def _upsert_subscription(**kwargs):
         return (
             SimpleNamespace(stripe_subscription_id="cs_123", status="active"),
@@ -1895,6 +2069,7 @@ def test_stripe_service_checkout_session_completed_creates_subscription(monkeypa
     monkeypatch.setattr(
         StripeService, "_get_subscription_by_stripe_id", staticmethod(_existing)
     )
+    monkeypatch.setattr(StripeService, "_get_user_by_id", staticmethod(_get_user_by_id))
     monkeypatch.setattr(
         StripeService, "_upsert_subscription", staticmethod(_upsert_subscription)
     )

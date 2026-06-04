@@ -1,5 +1,6 @@
 """Router module exports for API endpoints."""
 
+from src.routers.admin_router import admin_router
 from src.routers.ai_anatomy_router import ai_anatomy_router
 from src.routers.ai_biology_router import ai_biology_router
 from src.routers.auth_router import auth_router

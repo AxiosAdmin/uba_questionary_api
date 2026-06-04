@@ -25,6 +25,7 @@ class StripeController:
                     checkout_contact["id"],
                     customer_email=checkout_contact["email"],
                     coupon_code=coupon_code,
+                    stripe_customer_id=checkout_contact.get("stripe_customer_id"),
                 )
             except ValueError as exc:
                 return JSONResponse(

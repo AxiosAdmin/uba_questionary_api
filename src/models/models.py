@@ -75,9 +75,9 @@ class Users(Base):
     __tablename__ = "users"
     __table_args__ = (
         PrimaryKeyConstraint("id", name="users_pkey"),
+        UniqueConstraint("dni_hash", name="users_dni_hash_key"),
         UniqueConstraint("email_hash", name="users_email_hash_key"),
         UniqueConstraint("nickname_hash", name="users_nickname_hash_key"),
-        UniqueConstraint("dni_hash", name="users_dni_hash_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -97,6 +97,7 @@ class Users(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, nullable=False, server_default=text("now()")
     )
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text)
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
     question: Mapped[list["Questions"]] = relationship(
@@ -174,7 +175,7 @@ class Subscriptions(Base):
     __tablename__ = "subscriptions"
     __table_args__ = (
         CheckConstraint(
-            "status::text = ANY (ARRAY['active'::character varying, 'failed_payment'::character varying, 'canceled'::character varying, 'incomplete'::character varying, 'trialing'::character varying]::text[])",
+            "status::text = ANY (ARRAY['active'::character varying::text, 'failed_payment'::character varying::text, 'canceled'::character varying::text, 'incomplete'::character varying::text, 'trialing'::character varying::text])",
             name="subscriptions_status_check",
         ),
         ForeignKeyConstraint(
@@ -201,10 +202,10 @@ class Subscriptions(Base):
     )
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text)
     current_period_end: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
-    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     questions_generation_cycle_end: Mapped[Optional[datetime.datetime]] = mapped_column(
         DateTime
     )
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
     user: Mapped["Users"] = relationship("Users", back_populates="subscriptions")
 

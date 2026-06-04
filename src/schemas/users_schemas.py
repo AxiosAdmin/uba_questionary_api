@@ -111,6 +111,7 @@ class UsersGet(UsersBase):
     id: UUID
     global_role: str
     dni: str
+    stripe_customer_id: str | None = None
 
     @field_validator("name", "email", "nickname", "dni", mode="after")
     @classmethod
@@ -151,6 +152,7 @@ class UsersNoPasswordResponse(BaseModel):
     name: str
     nickname: str
     dni: str | None = None
+    stripe_customer_id: str | None = None
     global_role: str
 
     @field_validator("name", "nickname", "dni", mode="after")
@@ -192,6 +194,7 @@ class UsersLoginResponse(BaseModel):
     name: str
     nickname: str
     dni: str | None = None
+    stripe_customer_id: str | None = None
 
     @field_validator("name", "nickname", "dni", mode="after")
     @classmethod

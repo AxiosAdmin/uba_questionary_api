@@ -18,6 +18,41 @@ class AuthController:
     """Controller for handling authentication-related operations."""
 
     @staticmethod
+    async def _build_login_response(user, db):
+        """Build the standard login response and token payload."""
+        question_generation_usage = None
+
+        if hasattr(user, "user") and user.user.id:
+            question_generation_usage = (
+                await SubscriptionService.get_question_generation_usage(
+                    user_id=user.user.id,
+                    institution_id=user.institution_id,
+                    db=db,
+                )
+            )
+            token_response = JWTUtils.encode_jwt(
+                {"id": str(user.user.id), "sub": str(user.user.id)}
+            )
+
+        else:
+            if getattr(user, "global_role", None) != "Admin":
+                question_generation_usage = (
+                    await SubscriptionService.get_question_generation_usage(
+                        user_id=user.id,
+                        institution_id=None,
+                        db=db,
+                    )
+                )
+            token_response = JWTUtils.encode_jwt(
+                {"id": str(user.id), "sub": str(user.id)}
+            )
+
+        return {
+            "user": user,
+            "question_generation_usage": question_generation_usage,
+        }, token_response
+
+    @staticmethod
     async def login(nickname: str, password: str, db):
         """
         Process user login and generate JWT token.
@@ -32,40 +67,21 @@ class AuthController:
         """
         try:
             user = await AuthService.login(nickname, password, db)
-            question_generation_usage = None
-
-            if hasattr(user, "user") and user.user.id:
-                question_generation_usage = (
-                    await SubscriptionService.get_question_generation_usage(
-                        user_id=user.user.id,
-                        institution_id=user.institution_id,
-                        db=db,
-                    )
-                )
-                token_response = JWTUtils.encode_jwt(
-                    {"id": str(user.user.id), "sub": str(user.user.id)}
-                )
-
-            else:
-                if getattr(user, "global_role", None) != "Admin":
-                    question_generation_usage = (
-                        await SubscriptionService.get_question_generation_usage(
-                            user_id=user.id,
-                            institution_id=None,
-                            db=db,
-                        )
-                    )
-                token_response = JWTUtils.encode_jwt(
-                    {"id": str(user.id), "sub": str(user.id)}
-                )
-
-            return {
-                "user": user,
-                "question_generation_usage": question_generation_usage,
-            }, token_response
+            return await AuthController._build_login_response(user, db)
 
         except ValueError as e:
             raise HTTPException(status_code=401, detail=str(e)) from e
+
+    @staticmethod
+    async def login_admin(nickname: str, password: str, db):
+        """Authenticate an administrator and generate a JWT token."""
+        try:
+            user = await AuthService.login_admin(nickname, password, db)
+            return await AuthController._build_login_response(user, db)
+        except ValueError as e:
+            raise HTTPException(status_code=401, detail=str(e)) from e
+        except PermissionError as e:
+            raise HTTPException(status_code=403, detail=str(e)) from e
 
     @staticmethod
     async def forgot_password(email: str, db):

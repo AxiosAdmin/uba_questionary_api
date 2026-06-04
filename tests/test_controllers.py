@@ -6,9 +6,11 @@ from uuid import uuid4
 import jwt
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.exc import ProgrammingError
 
 from src.controllers.ai_anatomy_controller import AIAnatomyController
 from src.controllers.ai_biology_controller import AIBiologyController
+from src.controllers.admin_controller import AdminController
 from src.controllers.auth_controller import AuthController
 from src.controllers.stripe_controller import StripeController
 from src.controllers.users_controller import UsersController
@@ -85,6 +87,54 @@ def test_auth_controller_login_translates_value_error_to_http_401(monkeypatch):
         assert exc.detail == "Invalid nickname or password"
     else:
         assert False, "Expected HTTP 401 for invalid credentials"
+
+
+def test_auth_controller_login_admin_returns_token_for_admin(monkeypatch):
+    admin_id = uuid4()
+    expected_user = SimpleNamespace(
+        id=admin_id,
+        global_role="Admin",
+        name="Pedro Vieira",
+        nickname="admin",
+        dni="12345678",
+        stripe_customer_id=None,
+    )
+
+    async def _login_admin(*args, **kwargs):
+        return expected_user
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.login_admin", _login_admin
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.JWTUtils.encode_jwt",
+        staticmethod(lambda payload: "jwt-admin-only"),
+    )
+
+    response, token = asyncio.run(
+        AuthController.login_admin("admin", "Secret123!", FakeAsyncSession())
+    )
+
+    assert token == "jwt-admin-only"
+    assert response["user"] is expected_user
+    assert response["question_generation_usage"] is None
+
+
+def test_auth_controller_login_admin_translates_permission_error(monkeypatch):
+    async def _login_admin(*args, **kwargs):
+        raise PermissionError("Admin access is required")
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.login_admin", _login_admin
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            AuthController.login_admin("user", "Secret123!", FakeAsyncSession())
+        )
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "Admin access is required"
 
 
 def test_auth_controller_login_returns_usage_for_regular_user(monkeypatch):
@@ -303,6 +353,156 @@ def test_auth_controller_reset_password_translates_validation_errors(monkeypatch
     assert exc.value.detail == "Password must be strong"
 
 
+def test_admin_controller_inactive_plan_campaign_returns_preview(monkeypatch):
+    recipients = [
+        {
+            "user_id": str(uuid4()),
+            "name": "Pedro Vieira",
+            "email": "pedro@example.com",
+        },
+        {
+            "user_id": str(uuid4()),
+            "name": "Jane Doe",
+            "email": "jane@example.com",
+        },
+    ]
+
+    async def _require_admin(*args, **kwargs):
+        return SimpleNamespace(id=uuid4(), global_role="Admin")
+
+    async def _get_recipients(*args, **kwargs):
+        return recipients
+
+    monkeypatch.setattr(
+        "src.controllers.admin_controller.AdminService.require_admin",
+        _require_admin,
+    )
+    monkeypatch.setattr(
+        "src.controllers.admin_controller.AdminService.get_inactive_plan_recipients",
+        _get_recipients,
+    )
+    monkeypatch.setattr(
+        "src.controllers.admin_controller.settings",
+        SimpleNamespace(SUPPORT_EMAIL="support@example.com", SMTP_FROM_EMAIL="noreply@example.com"),
+    )
+
+    response = asyncio.run(
+        AdminController.send_inactive_plan_email_campaign(
+            current_user_id=str(uuid4()),
+            body=SimpleNamespace(
+                audience="never_paid",
+                subject="Sentimos sua falta",
+                message="Conte para a gente o que esta faltando.",
+                dry_run=True,
+                limit=None,
+            ),
+            db=FakeAsyncSession(),
+        )
+    )
+
+    assert response["dry_run"] is True
+    assert response["audience"] == "never_paid"
+    assert response["matched_users"] == 2
+    assert response["sent_emails"] == 0
+    assert response["reply_to"] == "support@example.com"
+
+
+def test_admin_controller_user_payment_summary_returns_counts(monkeypatch):
+    async def _require_admin(*args, **kwargs):
+        return SimpleNamespace(id=uuid4(), global_role="Admin")
+
+    async def _summary(*args, **kwargs):
+        return {
+            "total_registered_users": 20,
+            "never_paid_users": 9,
+            "paid_without_active_subscription_users": 6,
+            "active_subscription_users": 5,
+            "users_without_active_subscription": 15,
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.admin_controller.AdminService.require_admin",
+        _require_admin,
+    )
+    monkeypatch.setattr(
+        "src.controllers.admin_controller.AdminService.get_user_payment_summary",
+        _summary,
+    )
+
+    response = asyncio.run(
+        AdminController.get_user_payment_summary(
+            current_user_id=str(uuid4()),
+            db=FakeAsyncSession(),
+        )
+    )
+
+    assert response["total_registered_users"] == 20
+    assert response["never_paid_users"] == 9
+    assert response["paid_without_active_subscription_users"] == 6
+
+
+def test_admin_controller_inactive_plan_campaign_sends_emails(monkeypatch):
+    recipients = [
+        {
+            "user_id": str(uuid4()),
+            "name": "Pedro Vieira",
+            "email": "pedro@example.com",
+        },
+        {
+            "user_id": str(uuid4()),
+            "name": "Jane Doe",
+            "email": "jane@example.com",
+        },
+    ]
+    delivered = []
+
+    async def _require_admin(*args, **kwargs):
+        return SimpleNamespace(id=uuid4(), global_role="Admin")
+
+    async def _get_recipients(*args, **kwargs):
+        return recipients
+
+    def _send_email(recipient, recipient_name, subject, body):
+        delivered.append((recipient, recipient_name, subject, body))
+
+    monkeypatch.setattr(
+        "src.controllers.admin_controller.AdminService.require_admin",
+        _require_admin,
+    )
+    monkeypatch.setattr(
+        "src.controllers.admin_controller.AdminService.get_inactive_plan_recipients",
+        _get_recipients,
+    )
+    monkeypatch.setattr(
+        "src.controllers.admin_controller.EmailService.send_inactive_plan_follow_up_email",
+        _send_email,
+    )
+    monkeypatch.setattr(
+        "src.controllers.admin_controller.settings",
+        SimpleNamespace(SUPPORT_EMAIL=None, SMTP_FROM_EMAIL="noreply@example.com"),
+    )
+
+    response = asyncio.run(
+        AdminController.send_inactive_plan_email_campaign(
+            current_user_id=str(uuid4()),
+            body=SimpleNamespace(
+                audience="paid_without_active_subscription",
+                subject="Sentimos sua falta",
+                message="Conte para a gente o que esta faltando.",
+                dry_run=False,
+                limit=None,
+            ),
+            db=FakeAsyncSession(),
+        )
+    )
+
+    assert response["dry_run"] is False
+    assert response["audience"] == "paid_without_active_subscription"
+    assert response["sent_emails"] == 2
+    assert response["failed_emails"] == 0
+    assert len(delivered) == 2
+
+
 def test_users_controller_create_user_rejects_duplicate_nickname(monkeypatch):
     db = FakeAsyncSession()
     body = UsersPost(
@@ -364,6 +564,10 @@ def test_users_controller_create_user_persists_unique_user(monkeypatch):
         _create,
     )
     monkeypatch.setattr(
+        "src.controllers.users_controller.StripeService.create_customer",
+        staticmethod(lambda **kwargs: "cus_123"),
+    )
+    monkeypatch.setattr(
         UsersController,
         "_find_user_by_email_hash",
         staticmethod(lambda *args, **kwargs: asyncio.sleep(0, result=None)),
@@ -390,6 +594,7 @@ def test_users_controller_create_user_persists_unique_user(monkeypatch):
     assert "email_hash" in captured["payload"]
     assert "nickname_hash" in captured["payload"]
     assert "dni_hash" in captured["payload"]
+    assert captured["payload"]["stripe_customer_id"] == "cus_123"
 
 
 def test_users_controller_create_user_rejects_weak_password():
@@ -509,6 +714,44 @@ def test_users_controller_create_user_rejects_legacy_duplicate_email(monkeypatch
 
     assert exc.value.status_code == 400
     assert exc.value.detail == "Nickname, Email or DNI already exists"
+
+
+def test_users_controller_create_user_translates_database_programming_error(
+    monkeypatch,
+):
+    body = UsersPost(
+        name="Pedro Vieira",
+        email="pedro@example.com",
+        nickname="pedrov",
+        dni="12345678",
+        password="Secret123!",
+    )
+    fake_db = FakeAsyncSession()
+
+    async def _validate_unique_profile_fields(*args, **kwargs):
+        raise ProgrammingError(
+            "SELECT users.dni FROM users",
+            {},
+            Exception("column users.dni does not exist"),
+        )
+
+    monkeypatch.setattr(
+        UsersController,
+        "_validate_unique_profile_fields",
+        staticmethod(_validate_unique_profile_fields),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(UsersController.create_user(body, fake_db))
+
+    assert exc.value.status_code == 503
+    assert (
+        exc.value.detail
+        == "Database schema mismatch: missing column users.dni. "
+        "Run the migration `src/databases/scripts/migrations/users_dni.sql` "
+        "and try again."
+    )
+    assert fake_db.rolled_back is True
 
 
 def test_users_controller_get_current_user_returns_user(monkeypatch):
@@ -1069,16 +1312,23 @@ def test_stripe_controller_generate_payment_checkout_returns_url(monkeypatch):
             result={
                 "id": uuid4(),
                 "email": "pedro@example.com",
+                "stripe_customer_id": "cus_123",
                 "has_pending_dni": False,
             },
         ),
     )
     captured = {}
 
-    def _generate_checkout(user_id, customer_email=None, coupon_code=None):
+    def _generate_checkout(
+        user_id,
+        customer_email=None,
+        coupon_code=None,
+        stripe_customer_id=None,
+    ):
         captured["user_id"] = user_id
         captured["customer_email"] = customer_email
         captured["coupon_code"] = coupon_code
+        captured["stripe_customer_id"] = stripe_customer_id
         return {"url_session": "https://checkout.stripe.test"}
 
     monkeypatch.setattr(
@@ -1095,6 +1345,7 @@ def test_stripe_controller_generate_payment_checkout_returns_url(monkeypatch):
     assert response == {"url_session": "https://checkout.stripe.test"}
     assert captured["customer_email"] == "pedro@example.com"
     assert captured["coupon_code"] == "PROMO-UBA"
+    assert captured["stripe_customer_id"] == "cus_123"
 
 
 def test_stripe_controller_generate_payment_checkout_returns_404_when_user_missing(
@@ -1123,6 +1374,7 @@ def test_stripe_controller_generate_payment_checkout_rejects_pending_dni(
             result={
                 "id": uuid4(),
                 "email": "pedro@example.com",
+                "stripe_customer_id": None,
                 "has_pending_dni": True,
             },
         ),
@@ -1149,6 +1401,7 @@ def test_stripe_controller_generate_payment_checkout_returns_400_for_invalid_cou
             result={
                 "id": uuid4(),
                 "email": "pedro@example.com",
+                "stripe_customer_id": "cus_123",
                 "has_pending_dni": False,
             },
         ),

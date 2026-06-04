@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api_crud_generate_libary.routers.router import Router
 
 from src.routers import (
+    admin_router,
     ai_anatomy_router,
     ai_biology_router,
     auth_router,
@@ -55,6 +56,12 @@ app.include_router(
     users_router,
     prefix="/users",
     tags=["Users"],
+)
+
+app.include_router(
+    admin_router,
+    prefix="/admin",
+    tags=["Admin"],
 )
 
 app.include_router(

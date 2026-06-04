@@ -17,11 +17,14 @@ def test_registered_route_matrix(app):
 
     assert ("GET", "/healthy") in registered
     assert ("POST", "/login") in registered
+    assert ("POST", "/login/admin") in registered
     assert ("POST", "/forgot-password") in registered
     assert ("POST", "/reset-password") in registered
     assert ("POST", "/users") in registered
     assert ("GET", "/users/me") in registered
     assert ("PUT", "/users/me") in registered
+    assert ("GET", "/admin/dashboard/user-payment-summary") in registered
+    assert ("POST", "/admin/email-campaigns/inactive-plan-follow-up") in registered
     assert ("GET", "/question-answers/latest-answers") in registered
     assert ("POST", "/question-answers") in registered
     assert ("GET", "/institutions") in registered
@@ -73,6 +76,37 @@ def test_login_route_validates_required_fields(client, override_db):
     response = client.post("/login", json={"nickname": "pedrov"})
 
     assert response.status_code == 422
+
+
+def test_login_admin_route_returns_controller_response(client, override_db, monkeypatch):
+    async def _login_admin(nickname, password, db):
+        assert nickname == "admin"
+        assert password == "Secret123!"
+        return {
+            "user": {
+                "id": str(uuid4()),
+                "name": "Pedro Vieira",
+                "nickname": "admin",
+                "dni": "12345678",
+                "stripe_customer_id": None,
+                "global_role": "Admin",
+            },
+            "question_generation_usage": None,
+        }, "jwt-admin-token"
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthController.login_admin",
+        _login_admin,
+    )
+
+    response = client.post(
+        "/login/admin",
+        json={"nickname": "admin", "password": "Secret123!"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["token"] == "jwt-admin-token"
+    assert response.json()["user"]["global_role"] == "Admin"
 
 
 def test_forgot_password_route_returns_generic_message(
@@ -278,6 +312,89 @@ def test_users_me_route_updates_authenticated_user(
 
     assert response.status_code == 200
     assert response.json()["data"]["updated_at"] == "2026-05-24T00:00:00"
+
+
+def test_admin_inactive_plan_campaign_route_returns_controller_response(
+    client, override_db, authorize_request, monkeypatch
+):
+    user_id = uuid4()
+    headers, _ = authorize_request(user_id=user_id)
+
+    async def _send_campaign(current_user_id, body, db):
+        assert str(current_user_id) == str(user_id)
+        assert body.audience == "never_paid"
+        assert body.subject == "Sentimos sua falta"
+        assert body.dry_run is True
+        return {
+            "message": "Preview generated successfully.",
+            "audience": "never_paid",
+            "audience_label": "Usuarios que nunca pagaram",
+            "dry_run": True,
+            "matched_users": 2,
+            "sent_emails": 0,
+            "failed_emails": 0,
+            "reply_to": "suporte@example.com",
+            "recipients_preview": [
+                {
+                    "user_id": str(uuid4()),
+                    "name": "Pedro Vieira",
+                    "email": "pedro@example.com",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.admin_controller.AdminController.send_inactive_plan_email_campaign",
+        _send_campaign,
+    )
+
+    response = client.post(
+        "/admin/email-campaigns/inactive-plan-follow-up",
+        json={
+            "audience": "never_paid",
+            "subject": "Sentimos sua falta",
+            "message": "Queria entender o que esta faltando.",
+            "dry_run": True,
+            "confirm_send": False,
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["audience"] == "never_paid"
+    assert response.json()["matched_users"] == 2
+    assert response.json()["recipients_preview"][0]["email"] == "pedro@example.com"
+
+
+def test_admin_user_payment_summary_route_returns_controller_response(
+    client, override_db, authorize_request, monkeypatch
+):
+    user_id = uuid4()
+    headers, _ = authorize_request(user_id=user_id)
+
+    async def _summary(current_user_id, db):
+        assert str(current_user_id) == str(user_id)
+        return {
+            "total_registered_users": 20,
+            "never_paid_users": 9,
+            "paid_without_active_subscription_users": 6,
+            "active_subscription_users": 5,
+            "users_without_active_subscription": 15,
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.admin_controller.AdminController.get_user_payment_summary",
+        _summary,
+    )
+
+    response = client.get(
+        "/admin/dashboard/user-payment-summary",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total_registered_users"] == 20
+    assert response.json()["paid_without_active_subscription_users"] == 6
 
 
 def test_question_answers_latest_answers_requires_authorization(client, override_db):

@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS users (
     dni_hash VARCHAR(64) NOT NULL,
     password TEXT NOT NULL,
     global_role VARCHAR(50) DEFAULT 'User'::character varying NOT NULL,
+    stripe_customer_id TEXT,
     created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now() NOT NULL,
     updated_at TIMESTAMP WITHOUT TIME ZONE,
     CONSTRAINT users_pkey PRIMARY KEY (id),

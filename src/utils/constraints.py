@@ -5,6 +5,7 @@ BYPASS_ROUTES = {
     "/docs",
     "/redoc",
     "/login",
+    "/login/admin",
     "/healthy",
     "/institutions",
     "/stripe/generate",

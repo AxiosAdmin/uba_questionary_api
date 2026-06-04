@@ -5,7 +5,13 @@ from sqlalchemy import select
 from stripe import StripeClient
 
 from src.configs.configs import settings
-from src.models.models import Institutions, Profiles, Subscriptions, UsersInstitutions
+from src.models.models import (
+    Institutions,
+    Profiles,
+    Subscriptions,
+    Users,
+    UsersInstitutions,
+)
 
 stripe_client = StripeClient(settings.SECRET_STRIPE_AUTH_KEY)
 
@@ -63,7 +69,34 @@ class StripeService:
         return promotion_codes_data[0].get("id")
 
     @staticmethod
-    def generate_payment_checkout(user_id, customer_email=None, coupon_code=None):
+    def create_customer(user_id=None, customer_email=None, customer_name=None):
+        customer_payload = {"metadata": {}}
+
+        if user_id is not None:
+            customer_payload["metadata"]["user_id"] = str(user_id)
+
+        if customer_email:
+            customer_payload["email"] = customer_email
+
+        if customer_name:
+            customer_payload["name"] = customer_name
+
+        customer = stripe_client.v1.customers.create(customer_payload)
+        normalized_customer = StripeService._normalize_stripe_payload(customer)
+        customer_id = normalized_customer.get("id")
+
+        if not customer_id:
+            raise ValueError("Stripe customer could not be created")
+
+        return customer_id
+
+    @staticmethod
+    def generate_payment_checkout(
+        user_id,
+        customer_email=None,
+        coupon_code=None,
+        stripe_customer_id=None,
+    ):
         user_id_str = str(user_id)
         metadata = {
             "user_id": user_id_str,
@@ -75,7 +108,6 @@ class StripeService:
             "line_items": [{"price": settings.DEFAULT_PRICE_ID, "quantity": 1}],
             "adaptive_pricing": {"enabled": True},
             "allow_promotion_codes": promotion_code_id is None,
-            "customer_creation": "always",
             "invoice_creation": {"enabled": True},
             "locale": "es",
             "payment_method_options": {"card": {"request_three_d_secure": "automatic"}},
@@ -87,8 +119,15 @@ class StripeService:
             },
         }
 
-        if customer_email:
+        if stripe_customer_id:
+            stripe_payload["customer"] = stripe_customer_id
+        else:
+            stripe_payload["customer_creation"] = "always"
+
+        if customer_email and not stripe_customer_id:
             stripe_payload["customer_email"] = customer_email
+
+        if customer_email:
             stripe_payload["payment_intent_data"]["receipt_email"] = customer_email
 
         if promotion_code_id is not None:
@@ -235,6 +274,12 @@ class StripeService:
         query = select(Subscriptions).where(
             Subscriptions.stripe_subscription_id == stripe_subscription_id
         )
+        result = await session.execute(query)
+        return result.scalars().first()
+
+    @staticmethod
+    async def _get_user_by_id(session, user_id):
+        query = select(Users).where(Users.id == user_id)
         result = await session.execute(query)
         return result.scalars().first()
 
@@ -424,6 +469,18 @@ class StripeService:
                     "event": data["type"],
                 }
 
+            user = await StripeService._get_user_by_id(session, user_id)
+            if user is None:
+                return {
+                    "status": "ignored",
+                    "reason": "user_not_found",
+                    "event": data["type"],
+                }
+
+            stripe_customer_id = session_data.get("customer")
+            if stripe_customer_id and getattr(user, "stripe_customer_id", None) != stripe_customer_id:
+                user.stripe_customer_id = stripe_customer_id
+
             resolved_status = normalized_status
             if resolved_status is None:
                 resolved_status = (
@@ -438,7 +495,7 @@ class StripeService:
                 stripe_subscription_id=stripe_session_id,
                 status=resolved_status,
                 price_id=StripeService._extract_price_id(session_data),
-                stripe_customer_id=session_data.get("customer"),
+                stripe_customer_id=stripe_customer_id,
                 current_period_end=None,
             )
             access_action = await StripeService._sync_user_access_for_user(
