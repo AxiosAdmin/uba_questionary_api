@@ -19,11 +19,11 @@ class InactivePlanEmailCampaignSchema(BaseModel):
                 "audience": "never_paid",
                 "subject": "Sentimos sua falta na Axios Academia",
                 "message": (
-                    "Percebemos que voce esta sem plano ativo no momento.\n\n"
-                    "Queria entender se esta faltando alguma funcionalidade, "
+                    "<p>Percebemos que voce esta sem plano ativo no momento.</p>"
+                    "<p>Queria entender se esta faltando alguma funcionalidade, "
                     "conteudo ou ajuste para que a plataforma faca mais sentido "
-                    "para voce.\n\n"
-                    "Se quiser, e so responder este email."
+                    "para voce.</p>"
+                    "<p>Se quiser, e so responder este email.</p>"
                 ),
                 "dry_run": True,
                 "confirm_send": False,
@@ -34,7 +34,7 @@ class InactivePlanEmailCampaignSchema(BaseModel):
 
     audience: CampaignAudience
     subject: str = Field(min_length=3, max_length=160)
-    message: str = Field(min_length=10, max_length=5000)
+    message: str = Field(min_length=10, max_length=500000)
     dry_run: bool = True
     confirm_send: bool = False
     limit: int | None = Field(default=None, ge=1, le=1000)

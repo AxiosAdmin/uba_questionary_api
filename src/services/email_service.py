@@ -2,6 +2,8 @@
 
 from email.message import EmailMessage
 from html import escape
+from html.parser import HTMLParser
+import re
 import smtplib
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -10,6 +12,125 @@ from src.configs.configs import settings
 
 class EmailService:
     """Service for sending transactional emails through a configurable SMTP server."""
+
+    _ALLOWED_RICH_TEXT_TAGS = {
+        "a",
+        "b",
+        "blockquote",
+        "br",
+        "div",
+        "em",
+        "h1",
+        "h2",
+        "h3",
+        "hr",
+        "i",
+        "img",
+        "li",
+        "ol",
+        "p",
+        "strong",
+        "u",
+        "ul",
+    }
+    _VOID_RICH_TEXT_TAGS = {"br", "hr", "img"}
+    _ALLOWED_RICH_TEXT_ATTRS = {
+        "a": {"href"},
+        "img": {"src", "alt", "width", "height"},
+    }
+    _DANGEROUS_CONTENT_TAGS = {"script", "style"}
+    _SAFE_IMAGE_DATA_URL_PATTERN = re.compile(
+        r"^data:image/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$",
+        re.IGNORECASE,
+    )
+
+    class _RichTextSanitizer(HTMLParser):
+        """Allow a narrow HTML subset for admin-written outreach emails."""
+
+        def __init__(self, email_service):
+            super().__init__(convert_charrefs=False)
+            self._email_service = email_service
+            self._result = []
+            self._open_tags = []
+            self._skip_depth = 0
+
+        def handle_starttag(self, tag, attrs):
+            normalized_tag = tag.lower()
+
+            if normalized_tag in self._email_service._DANGEROUS_CONTENT_TAGS:
+                self._skip_depth += 1
+                return
+
+            if self._skip_depth:
+                return
+
+            if normalized_tag not in self._email_service._ALLOWED_RICH_TEXT_TAGS:
+                return
+
+            sanitized_attrs = self._email_service._sanitize_html_attributes(
+                normalized_tag, attrs
+            )
+            rendered_attrs = "".join(
+                f' {name}="{escape(value, quote=True)}"'
+                for name, value in sanitized_attrs
+            )
+
+            if normalized_tag in self._email_service._VOID_RICH_TEXT_TAGS:
+                self._result.append(f"<{normalized_tag}{rendered_attrs}>")
+                return
+
+            self._result.append(f"<{normalized_tag}{rendered_attrs}>")
+            self._open_tags.append(normalized_tag)
+
+        def handle_endtag(self, tag):
+            normalized_tag = tag.lower()
+
+            if normalized_tag in self._email_service._DANGEROUS_CONTENT_TAGS:
+                if self._skip_depth:
+                    self._skip_depth -= 1
+                return
+
+            if self._skip_depth:
+                return
+
+            if normalized_tag not in self._email_service._ALLOWED_RICH_TEXT_TAGS:
+                return
+
+            if normalized_tag in self._email_service._VOID_RICH_TEXT_TAGS:
+                return
+
+            if normalized_tag not in self._open_tags:
+                return
+
+            while self._open_tags:
+                open_tag = self._open_tags.pop()
+                self._result.append(f"</{open_tag}>")
+                if open_tag == normalized_tag:
+                    break
+
+        def handle_data(self, data):
+            if self._skip_depth:
+                return
+
+            self._result.append(escape(data))
+
+        def handle_entityref(self, name):
+            if self._skip_depth:
+                return
+
+            self._result.append(f"&{name};")
+
+        def handle_charref(self, name):
+            if self._skip_depth:
+                return
+
+            self._result.append(f"&#{name};")
+
+        def get_html(self):
+            while self._open_tags:
+                self._result.append(f"</{self._open_tags.pop()}>")
+
+            return "".join(self._result)
 
     @staticmethod
     def _normalize_single_recipient(recipient) -> str:
@@ -159,6 +280,78 @@ class EmailService:
         return message
 
     @staticmethod
+    def _sanitize_html_attributes(tag: str, attrs: list[tuple[str, str | None]]) -> list[tuple[str, str]]:
+        allowed_attrs = EmailService._ALLOWED_RICH_TEXT_ATTRS.get(tag, set())
+        sanitized_attrs = []
+
+        for attr_name, attr_value in attrs:
+            normalized_name = (attr_name or "").lower()
+            normalized_value = (attr_value or "").strip()
+
+            if normalized_name not in allowed_attrs or not normalized_value:
+                continue
+
+            if normalized_name == "href":
+                if not EmailService._is_safe_rich_text_url(
+                    normalized_value,
+                    allowed_schemes={"http", "https", "mailto"},
+                ):
+                    continue
+
+            if normalized_name == "src":
+                if not EmailService._is_safe_rich_text_url(
+                    normalized_value,
+                    allowed_schemes={"http", "https"},
+                ):
+                    continue
+
+            if normalized_name in {"width", "height"}:
+                if not normalized_value.isdigit():
+                    continue
+
+            sanitized_attrs.append((normalized_name, normalized_value))
+
+        return sanitized_attrs
+
+    @staticmethod
+    def _is_safe_rich_text_url(url: str, allowed_schemes: set[str]) -> bool:
+        parsed_url = urlsplit(url)
+        scheme = (parsed_url.scheme or "").lower()
+
+        if scheme == "data":
+            return bool(EmailService._SAFE_IMAGE_DATA_URL_PATTERN.fullmatch(url))
+
+        if scheme not in allowed_schemes:
+            return False
+
+        if scheme in {"http", "https"} and not parsed_url.netloc:
+            return False
+
+        if scheme == "mailto" and not parsed_url.path:
+            return False
+
+        return True
+
+    @staticmethod
+    def _sanitize_rich_text_body(body: str) -> str:
+        normalized_body = (body or "").strip()
+        if not normalized_body:
+            return ""
+
+        sanitizer = EmailService._RichTextSanitizer(EmailService)
+        sanitizer.feed(normalized_body)
+        sanitizer.close()
+        sanitized_body = sanitizer.get_html().strip()
+
+        if not sanitized_body:
+            return ""
+
+        if "<" not in normalized_body and ">" not in normalized_body:
+            return "<br>".join(escape(normalized_body).splitlines())
+
+        return sanitized_body
+
+    @staticmethod
     def _build_inactive_plan_follow_up_message(
         recipient: str,
         recipient_name: str | None,
@@ -178,19 +371,9 @@ class EmailService:
                 "SMTP_FROM_EMAIL must be configured when SMTP is enabled."
             )
 
-        greeting_name = (recipient_name or "").strip()
-        greeting = f"Ola, {escape(greeting_name)}!" if greeting_name else "Ola!"
-        formatted_body = "<br>".join(escape(body).splitlines())
+        formatted_body = EmailService._sanitize_rich_text_body(body)
 
-        html_body = (
-            "<html><body>"
-            f"<p>{greeting}</p>"
-            f"<p>{formatted_body}</p>"
-            "<p>Se quiser, e so responder este email contando o que esta faltando "
-            "ou o que te impediria de voltar a usar a plataforma.</p>"
-            "<p>Obrigado!</p>"
-            "</body></html>"
-        )
+        html_body = f"<html><body>{formatted_body}</body></html>"
 
         message = EmailMessage()
         message["Subject"] = subject

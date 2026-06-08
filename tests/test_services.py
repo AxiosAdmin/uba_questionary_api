@@ -397,9 +397,98 @@ def test_email_service_builds_inactive_plan_follow_up_message(monkeypatch):
         body="Queria entender o que esta faltando.\nPode responder este email.",
     )
 
+    content = message.get_content()
+
     assert message["Reply-To"] == "support@example.com"
     assert message["Subject"] == "Sentimos sua falta"
-    assert "Pode responder este email." in message.get_content()
+    assert "Queria entender o que esta faltando." in content
+    assert "Ola, Pedro!" not in content
+    assert "Se quiser, e so responder este email contando o que esta faltando" not in content
+    assert "Obrigado!" not in content
+
+
+def test_email_service_builds_inactive_plan_follow_up_message_with_rich_text(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+            SUPPORT_EMAIL="support@example.com",
+        ),
+    )
+
+    message = EmailService._build_inactive_plan_follow_up_message(
+        recipient="pedro@example.com",
+        recipient_name="Pedro",
+        subject="Sentimos sua falta",
+        body=(
+            "<p><strong>Sentimos sua falta.</strong> Veja as novidades.</p>"
+            '<p><a href="https://example.com">Abrir plataforma</a></p>'
+            '<p><img src="https://example.com/banner.png" alt="Banner"></p>'
+        ),
+    )
+
+    content = message.get_content()
+
+    assert "<strong>Sentimos sua falta.</strong>" in content
+    assert 'href="https://example.com"' in content
+    assert 'src="https://example.com/banner.png"' in content
+    assert "Obrigado!" not in content
+
+
+def test_email_service_accepts_safe_inline_image_data_url(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+            SUPPORT_EMAIL="support@example.com",
+        ),
+    )
+
+    message = EmailService._build_inactive_plan_follow_up_message(
+        recipient="pedro@example.com",
+        recipient_name="Pedro",
+        subject="Sentimos sua falta",
+        body=(
+            '<p>Imagem inline:</p>'
+            '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA" alt="Logo">'
+        ),
+    )
+
+    assert 'src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"' in (
+        message.get_content()
+    )
+
+
+def test_email_service_sanitizes_inactive_plan_follow_up_rich_text(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+            SUPPORT_EMAIL="support@example.com",
+        ),
+    )
+
+    message = EmailService._build_inactive_plan_follow_up_message(
+        recipient="pedro@example.com",
+        recipient_name="Pedro",
+        subject="Sentimos sua falta",
+        body=(
+            '<p>Oi</p><script>alert("x")</script>'
+            '<p><a href="javascript:alert(1)">link ruim</a></p>'
+            '<img src="ftp://example.com/banner.png" alt="Banner">'
+        ),
+    )
+
+    content = message.get_content()
+
+    assert "<script>" not in content
+    assert 'href="javascript:alert(1)"' not in content
+    assert 'src="ftp://example.com/banner.png"' not in content
 
 
 def test_email_service_rejects_multiple_recipients_in_single_message():
