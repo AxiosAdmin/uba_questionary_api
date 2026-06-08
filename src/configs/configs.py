@@ -53,6 +53,7 @@ class Settings(BaseSettings):
         "https://ubaquestionaryfront-production.up.railway.app",
         "https://ubaquestionaryfrontadm-production-feeb.up.railway.app",
         "https://axiosacademia.com",
+        "https://ubaquestionaryfrontadm-production.up.railway.app",
     ]
 
     @field_validator("FRONTEND_ORIGINS", mode="before")
