@@ -15,8 +15,6 @@ from src.models.models import (
 )
 from src.schemas import (
     QuestionAnswersBase,
-    QuestionAnswersGet,
-    QuestionAnswersPost,
 )
 
 from src.schemas import InstitutionBase
@@ -54,16 +52,16 @@ routes_declaration: list[dict[str, Any]] = [
         "standard_schema": QuestionAnswersBase,
         "db_session": get_db,
         "auth_callback": None,
-        "request_post_schema": QuestionAnswersPost,
+        "request_post_schema": None,
         "request_update_schema": None,
         "response_get_schema": None,
         "response_get_by_id_schema": None,
-        "response_post_schema": QuestionAnswersGet,
+        "response_post_schema": None,
         "response_delete_schema": None,
         "response_patch_schema": None,
         "enable_get": False,
         "enable_get_by_id": False,
-        "enable_post": True,
+        "enable_post": False,
         "enable_delete": False,
         "enable_patch": False,
         "join_parameters": None,

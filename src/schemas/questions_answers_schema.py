@@ -4,7 +4,9 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+VALID_QUESTION_ANSWER_OPTIONS = {"A", "B", "C", "D", "E"}
 
 
 class QuestionAnswersBase(BaseModel):
@@ -25,10 +27,19 @@ class QuestionAnswersBase(BaseModel):
         ...,
         min_length=1,
         max_length=1,
-        description="Resposta do usuÃ¡rio (A, B, C ou D)",
+        description="User answer letter (A, B, C, D or E)",
     )
     question_id: Optional[UUID] = None
     user_id: Optional[UUID] = None
+
+    @field_validator("answer")
+    @classmethod
+    def normalize_answer(cls, value: str) -> str:
+        """Normalize answer letters and reject unsupported options."""
+        normalized_value = value.strip().upper()
+        if normalized_value not in VALID_QUESTION_ANSWER_OPTIONS:
+            raise ValueError("answer must be one of: A, B, C, D, E")
+        return normalized_value
 
 
 class QuestionAnswersPost(QuestionAnswersBase):
@@ -40,10 +51,11 @@ class QuestionAnswersPost(QuestionAnswersBase):
             "example": {
                 "answer": "B",
                 "question_id": "123e4567-e89b-12d3-a456-426614174000",
-                "user_id": "123e4567-e89b-12d3-a456-426614174001",
             }
         },
     )
+
+    question_id: UUID
 
 
 class QuestionAnswersUpdate(BaseModel):
@@ -75,6 +87,8 @@ class QuestionAnswersGet(QuestionAnswersBase):
     )
 
     id: UUID
+    question_id: UUID
+    user_id: UUID
     created_at: datetime
     updated_at: Optional[datetime] = None
 

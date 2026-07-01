@@ -406,6 +406,48 @@ def test_question_answers_latest_answers_requires_authorization(client, override
     assert response.json()["detail"] == "Authorization header is required"
 
 
+def test_question_answers_post_returns_controller_response(
+    client, override_db, authorize_request, monkeypatch
+):
+    user_id = uuid4()
+    question_id = uuid4()
+    headers, _ = authorize_request(user_id=user_id)
+
+    async def _create_question_answer(current_user_id, body, db):
+        assert str(current_user_id) == str(user_id)
+        assert body.question_id == question_id
+        assert body.answer == "A"
+        return {
+            "data": {
+                "id": str(uuid4()),
+                "answer": body.answer,
+                "question_id": str(question_id),
+                "user_id": str(user_id),
+                "created_at": "2024-01-15T10:30:00",
+                "updated_at": None,
+            }
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.question_answers_controller.QuestionAnswersController.create_question_answer",
+        _create_question_answer,
+    )
+
+    response = client.post(
+        "/question-answers",
+        json={
+            "answer": "a",
+            "question_id": str(question_id),
+            "user_id": str(uuid4()),
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["answer"] == "A"
+    assert response.json()["data"]["user_id"] == str(user_id)
+
+
 def test_question_answers_latest_answers_rejects_invalid_bearer_format(
     client, override_db
 ):

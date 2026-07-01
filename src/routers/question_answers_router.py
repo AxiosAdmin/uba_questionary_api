@@ -1,13 +1,34 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from api_crud_generate_libary.schemas.pattern_schema import PatternSchemaDataList
+from api_crud_generate_libary.schemas.pattern_schema import (
+    PatternSchema,
+    PatternSchemaDataList,
+)
 from uuid import UUID
 
 from src.configs.db_connection import get_db
 from src.controllers.question_answers_controller import QuestionAnswersController
-from src.schemas.questions_answers_schema import UserQuestionWithLatestAnswerSchema
+from src.schemas.questions_answers_schema import (
+    QuestionAnswersGet,
+    QuestionAnswersPost,
+    UserQuestionWithLatestAnswerSchema,
+)
 
 question_answers_router = APIRouter()
+
+
+@question_answers_router.post("", response_model=PatternSchema[QuestionAnswersGet])
+async def create_question_answer(
+    body: QuestionAnswersPost,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a question answer for the authenticated user."""
+    return await QuestionAnswersController.create_question_answer(
+        request.state.user_id,
+        body,
+        db,
+    )
 
 
 @question_answers_router.get(

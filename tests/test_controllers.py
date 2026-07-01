@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 import json
 from types import SimpleNamespace
 from uuid import uuid4
@@ -12,8 +13,10 @@ from src.controllers.ai_anatomy_controller import AIAnatomyController
 from src.controllers.ai_biology_controller import AIBiologyController
 from src.controllers.admin_controller import AdminController
 from src.controllers.auth_controller import AuthController
+from src.controllers.question_answers_controller import QuestionAnswersController
 from src.controllers.stripe_controller import StripeController
 from src.controllers.users_controller import UsersController
+from src.schemas.questions_answers_schema import QuestionAnswersPost
 from src.schemas.users_schemas import UsersPost
 from src.utils.fernet_utils import FernetUtils
 from tests.conftest import FakeAsyncSession, FakeExecuteResult
@@ -118,6 +121,55 @@ def test_auth_controller_login_admin_returns_token_for_admin(monkeypatch):
     assert token == "jwt-admin-only"
     assert response["user"] is expected_user
     assert response["question_generation_usage"] is None
+
+
+def test_question_answers_controller_creates_answer_for_authenticated_user():
+    user_id = uuid4()
+    question_id = uuid4()
+
+    class RefreshingSession(FakeAsyncSession):
+        async def refresh(self, item):
+            await super().refresh(item)
+            item.id = uuid4()
+            item.created_at = datetime.now()
+            item.updated_at = None
+
+    db = RefreshingSession(scalar_results=[question_id])
+    body = QuestionAnswersPost(
+        answer="b",
+        question_id=question_id,
+        user_id=uuid4(),
+    )
+
+    response = asyncio.run(
+        QuestionAnswersController.create_question_answer(user_id, body, db)
+    )
+
+    created_answer = db.added[0]
+
+    assert created_answer.user_id == user_id
+    assert created_answer.question_id == question_id
+    assert created_answer.answer == "B"
+    assert db.committed is True
+    assert db.refreshed == [created_answer]
+    assert response["data"].user_id == user_id
+    assert response["data"].question_id == question_id
+
+
+def test_question_answers_controller_rejects_unknown_question():
+    body = QuestionAnswersPost(answer="A", question_id=uuid4())
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            QuestionAnswersController.create_question_answer(
+                uuid4(),
+                body,
+                FakeAsyncSession(scalar_results=[None]),
+            )
+        )
+
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "Question not found"
 
 
 def test_auth_controller_login_admin_translates_permission_error(monkeypatch):
