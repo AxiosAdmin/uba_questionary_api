@@ -118,7 +118,6 @@ class AuthService:
             ValueError: If nickname or password is invalid
         """
         user = await AuthService._find_user_by_nickname(nickname, db)
-        print(f"User found: {user.nickname if user else 'None'}")  # Debugging line
         if user and fernet_utils.decrypt(user.password) == password:
             if user.global_role == "Admin":
                 return user
@@ -127,8 +126,6 @@ class AuthService:
             user_institutions = await UserInstitutionService.read_user_institutions(
                 user.id, uba_institution.id, db
             )
-
-            print(f"User institutions: {user_institutions}")  # Debugging line
 
             if user_institutions:
                 return user_institutions

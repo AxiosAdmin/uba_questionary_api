@@ -21,34 +21,9 @@ from src.schemas import InstitutionBase
 
 from src.schemas import UserFeedbackSchemaBase
 
-from src.schemas import UsersGet
-
 from src.configs.db_connection import get_db
 
 routes_declaration: list[dict[str, Any]] = [
-    {
-        "model_class": Users,
-        "standard_schema": UsersGet,
-        "db_session": get_db,
-        "auth_callback": None,
-        "request_post_schema": None,
-        "request_update_schema": None,
-        "response_get_schema": None,
-        "response_get_by_id_schema": None,
-        "response_post_schema": None,
-        "response_delete_schema": None,
-        "response_patch_schema": None,
-        "enable_get": True,
-        "enable_get_by_id": True,
-        "enable_post": False,
-        "enable_delete": False,
-        "enable_patch": False,
-        "join_parameters": None,
-        "second_level_join_parameters": None,
-        "route_prefix": "/new",
-        "route_tags": ["Users New"],
-        "dependencies": False,
-    },
     {
         "model_class": Institutions,
         "standard_schema": InstitutionBase,
