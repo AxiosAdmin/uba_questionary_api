@@ -21,14 +21,14 @@ from src.schemas import InstitutionBase
 
 from src.schemas import UserFeedbackSchemaBase
 
-from src.schemas import UsersBase
+from src.schemas import UsersGet
 
 from src.configs.db_connection import get_db
 
 routes_declaration: list[dict[str, Any]] = [
     {
         "model_class": Users,
-        "standard_schema": UsersBase,
+        "standard_schema": UsersGet,
         "db_session": get_db,
         "auth_callback": None,
         "request_post_schema": None,
