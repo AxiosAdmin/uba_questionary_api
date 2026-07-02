@@ -111,9 +111,10 @@ class UsersGet(UsersBase):
     id: UUID
     global_role: str
     dni: str
+    password: str
     stripe_customer_id: str | None = None
 
-    @field_validator("name", "email", "nickname", "dni", mode="after")
+    @field_validator("name", "email", "nickname", "password", "dni", mode="after")
     @classmethod
     def decrypt_fields(cls, value: str) -> str:
         """
