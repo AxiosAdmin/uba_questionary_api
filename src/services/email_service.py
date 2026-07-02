@@ -229,18 +229,90 @@ class EmailService:
         return normalized
 
     @staticmethod
-    def _build_password_reset_destination(reset_token: str) -> str:
-        password_reset_url = EmailService._get_setting("PASSWORD_RESET_URL")
-        if password_reset_url:
-            parts = urlsplit(password_reset_url)
-            query_items = dict(parse_qsl(parts.query, keep_blank_values=True))
-            query_items["token"] = reset_token
-            updated_query = urlencode(query_items)
-            return urlunsplit(
-                (parts.scheme, parts.netloc, parts.path, updated_query, parts.fragment)
-            )
+    def _with_token_query(destination_url: str, token: str) -> str:
+        parts = urlsplit(destination_url)
+        query_items = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query_items["token"] = token
+        updated_query = urlencode(query_items)
+        return urlunsplit(
+            (parts.scheme, parts.netloc, parts.path, updated_query, parts.fragment)
+        )
 
-        return reset_token
+    @staticmethod
+    def _build_url_from_origin(origin: str | None, path: str) -> str | None:
+        if not origin:
+            return None
+
+        parts = urlsplit(origin)
+        if not parts.scheme or not parts.netloc:
+            return None
+
+        normalized_path = f"/{path.lstrip('/')}"
+        return urlunsplit((parts.scheme, parts.netloc, normalized_path, "", ""))
+
+    @staticmethod
+    def _replace_url_path(destination_url: str | None, path: str) -> str | None:
+        if not destination_url:
+            return None
+
+        parts = urlsplit(destination_url)
+        if not parts.scheme or not parts.netloc:
+            return None
+
+        current_path = parts.path or "/"
+        normalized_segment = path.lstrip("/")
+        parent_path = (
+            current_path.rstrip("/")
+            if current_path.endswith("/")
+            else current_path.rsplit("/", 1)[0]
+        )
+        updated_path = (
+            f"{parent_path}/{normalized_segment}"
+            if parent_path and parent_path != "/"
+            else f"/{normalized_segment}"
+        )
+        return urlunsplit(
+            (parts.scheme, parts.netloc, updated_path, parts.query, parts.fragment)
+        )
+
+    @staticmethod
+    def _resolve_token_destination_url(
+        url_setting_name: str,
+        fallback_path: str,
+        fallback_url_setting_name: str | None = None,
+    ) -> str | None:
+        destination_url = EmailService._get_setting(url_setting_name)
+        if destination_url:
+            return destination_url
+
+        if fallback_url_setting_name:
+            fallback_url = EmailService._replace_url_path(
+                EmailService._get_setting(fallback_url_setting_name),
+                fallback_path,
+            )
+            if fallback_url:
+                return fallback_url
+
+        frontend_origins = EmailService._get_setting("FRONTEND_ORIGINS", [])
+        first_origin = frontend_origins[0] if frontend_origins else None
+        return EmailService._build_url_from_origin(first_origin, fallback_path)
+
+    @staticmethod
+    def _build_token_destination(
+        url_setting_name: str,
+        token: str,
+        fallback_path: str,
+        fallback_url_setting_name: str | None = None,
+    ) -> str:
+        destination_url = EmailService._resolve_token_destination_url(
+            url_setting_name=url_setting_name,
+            fallback_path=fallback_path,
+            fallback_url_setting_name=fallback_url_setting_name,
+        )
+        if destination_url:
+            return EmailService._with_token_query(destination_url, token)
+
+        return token
 
     @staticmethod
     def _build_password_reset_message(recipient: str, reset_token: str) -> EmailMessage:
@@ -256,23 +328,71 @@ class EmailService:
                 "SMTP_FROM_EMAIL must be configured when SMTP is enabled."
             )
 
-        destination = EmailService._build_password_reset_destination(reset_token)
+        destination = EmailService._build_token_destination(
+            "PASSWORD_RESET_URL",
+            reset_token,
+            "/reset-password",
+        )
 
         html_body = (
             "<html><body>"
-            "<p>Ola,</p>"
-            "<p>Recebemos uma solicitacao para redefinir sua senha.</p>"
+            "<p>Hola,</p>"
+            "<p>Recibimos una solicitud para restablecer tu contrasena.</p>"
             "<p>"
-            f'Clique no <a href="{destination}">link de redefinicao de senha</a> '
+            f'Haz clic en el <a href="{destination}">enlace para restablecer tu contrasena</a> '
             "para continuar."
             "</p>"
-            f"<p>Este acesso expira em {reset_expiration_minutes} minutos.</p>"
-            "<p>Se voce nao solicitou a redefinicao, ignore este e-mail.</p>"
+            f"<p>Este acceso vence en {reset_expiration_minutes} minutos.</p>"
+            "<p>Si no solicitaste este cambio, puedes ignorar este correo.</p>"
             "</body></html>"
         )
 
         message = EmailMessage()
-        message["Subject"] = "Redefinicao de senha"
+        message["Subject"] = "Restablecimiento de contrasena"
+        message["From"] = f"{smtp_from_name} <{smtp_from_email}>"
+        message["To"] = recipient
+        message.set_content(html_body, subtype="html")
+
+        return message
+
+    @staticmethod
+    def _build_nickname_recovery_message(
+        recipient: str, recovery_token: str
+    ) -> EmailMessage:
+        recipient = EmailService._normalize_single_recipient(recipient)
+        smtp_from_email = EmailService._get_setting("SMTP_FROM_EMAIL")
+        smtp_from_name = EmailService._get_setting("SMTP_FROM_NAME", "UBA Questionary")
+        recovery_expiration_minutes = EmailService._get_setting(
+            "NICKNAME_RECOVERY_TOKEN_EXPIRATION_MINUTES", 30
+        )
+
+        if not smtp_from_email:
+            raise RuntimeError(
+                "SMTP_FROM_EMAIL must be configured when SMTP is enabled."
+            )
+
+        destination = EmailService._build_token_destination(
+            "NICKNAME_RECOVERY_URL",
+            recovery_token,
+            "/recover-nickname",
+            fallback_url_setting_name="PASSWORD_RESET_URL",
+        )
+
+        html_body = (
+            "<html><body>"
+            "<p>Hola,</p>"
+            "<p>Recibimos una solicitud para cambiar tu nickname.</p>"
+            "<p>"
+            f'Haz clic en el <a href="{destination}">enlace para cambiar tu nickname</a> '
+            "para continuar."
+            "</p>"
+            f"<p>Este acceso vence en {recovery_expiration_minutes} minutos.</p>"
+            "<p>Si no solicitaste este cambio, puedes ignorar este correo.</p>"
+            "</body></html>"
+        )
+
+        message = EmailMessage()
+        message["Subject"] = "Cambio de nickname"
         message["From"] = f"{smtp_from_name} <{smtp_from_email}>"
         message["To"] = recipient
         message.set_content(html_body, subtype="html")
@@ -385,11 +505,16 @@ class EmailService:
         return message
 
     @staticmethod
-    def _send_message(message: EmailMessage, require_enabled: bool = False) -> None:
+    def _send_message(
+        message: EmailMessage,
+        require_enabled: bool = False,
+        delivery_settings: dict | None = None,
+    ) -> None:
         """Deliver a prepared email message via SMTP."""
-        delivery_settings = EmailService._get_smtp_delivery_settings(
-            require_enabled=require_enabled
-        )
+        if delivery_settings is None:
+            delivery_settings = EmailService._get_smtp_delivery_settings(
+                require_enabled=require_enabled
+            )
         if delivery_settings is None:
             return
 
@@ -437,12 +562,32 @@ class EmailService:
     @staticmethod
     def send_password_reset_email(recipient: str, reset_token: str) -> None:
         """Send a password reset email when SMTP delivery is enabled."""
+        delivery_settings = EmailService._get_smtp_delivery_settings()
+        if delivery_settings is None:
+            return
+
         message = EmailService._build_password_reset_message(recipient, reset_token)
 
         try:
-            EmailService._send_message(message)
+            EmailService._send_message(message, delivery_settings=delivery_settings)
         except RuntimeError as exc:
             raise RuntimeError("Unable to send password reset email.") from exc
+
+    @staticmethod
+    def send_nickname_recovery_email(recipient: str, recovery_token: str) -> None:
+        """Send a nickname recovery email when SMTP delivery is enabled."""
+        delivery_settings = EmailService._get_smtp_delivery_settings()
+        if delivery_settings is None:
+            return
+
+        message = EmailService._build_nickname_recovery_message(
+            recipient, recovery_token
+        )
+
+        try:
+            EmailService._send_message(message, delivery_settings=delivery_settings)
+        except RuntimeError as exc:
+            raise RuntimeError("Unable to send nickname recovery email.") from exc
 
     @staticmethod
     def send_inactive_plan_follow_up_email(

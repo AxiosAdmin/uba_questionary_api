@@ -95,6 +95,21 @@ def test_auth_service_login_returns_admin_user():
     assert response is admin_user
 
 
+def test_auth_service_login_sanitizes_nickname_and_password(monkeypatch):
+    fernet = FernetUtils()
+    user = _build_user(global_role="Admin")
+    user.nickname = fernet.encrypt("pedrov ")
+    user.nickname_hash = UserLookupUtils.hash_nickname("pedrov ")
+    user.password = fernet.encrypt(" secret123 ")
+    db = FakeAsyncSession(
+        execute_results=[FakeExecuteResult(scalars_items=[]), FakeExecuteResult(scalars_items=[user])]
+    )
+
+    response = asyncio.run(AuthService.login(" pe drov ", " secret123 ", db))
+
+    assert response is user
+
+
 def test_auth_service_login_admin_requires_admin_role(monkeypatch):
     regular_user = _build_user(global_role="User")
 
@@ -246,6 +261,21 @@ def test_auth_service_request_password_reset_returns_token():
     assert payload["purpose"] == "password_reset"
 
 
+def test_auth_service_request_password_reset_sanitizes_email():
+    fernet = FernetUtils()
+    user = _build_user()
+    user.email = fernet.encrypt("pedro @example.com")
+    user.email_hash = UserLookupUtils.hash_email("pedro @example.com")
+    db = FakeAsyncSession(
+        execute_results=[FakeExecuteResult(scalars_items=[]), FakeExecuteResult(scalars_items=[user])]
+    )
+
+    token = asyncio.run(AuthService.request_password_reset(" pedro@example.com ", db))
+    payload = AuthService.reset_password.__globals__["JWTUtils"].decode_jwt(token)
+
+    assert payload["sub"] == str(user.id)
+
+
 def test_auth_service_request_password_reset_returns_none_for_unknown_email():
     user = _build_user()
     db = FakeAsyncSession(
@@ -256,6 +286,31 @@ def test_auth_service_request_password_reset_returns_none_for_unknown_email():
     )
 
     token = asyncio.run(AuthService.request_password_reset("missing@example.com", db))
+
+    assert token is None
+
+
+def test_auth_service_request_nickname_recovery_returns_token():
+    user = _build_user()
+    db = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[user])])
+
+    token = asyncio.run(AuthService.request_nickname_recovery("pedro@example.com", db))
+    payload = AuthService.recover_nickname.__globals__["JWTUtils"].decode_jwt(token)
+
+    assert payload["sub"] == str(user.id)
+    assert payload["purpose"] == "nickname_recovery"
+
+
+def test_auth_service_request_nickname_recovery_returns_none_for_unknown_email():
+    user = _build_user()
+    db = FakeAsyncSession(
+        execute_results=[
+            FakeExecuteResult(scalars_items=[]),
+            FakeExecuteResult(scalars_items=[user]),
+        ]
+    )
+
+    token = asyncio.run(AuthService.request_nickname_recovery("missing@example.com", db))
 
     assert token is None
 
@@ -315,6 +370,34 @@ def test_auth_service_request_password_reset_fallbacks_to_legacy_user(monkeypatc
     assert db.committed is True
 
 
+def test_auth_service_request_nickname_recovery_fallbacks_to_legacy_user(monkeypatch):
+    fernet = FernetUtils()
+    legacy_user = SimpleNamespace(
+        id=uuid4(),
+        name=fernet.encrypt("Pedro Vieira"),
+        email=fernet.encrypt("pedro@example.com"),
+        email_hash=None,
+        nickname=fernet.encrypt("pedrov"),
+        nickname_hash=None,
+        password=fernet.encrypt("secret123"),
+        global_role="User",
+    )
+    db = FakeAsyncSession(
+        execute_results=[
+            FakeExecuteResult(scalars_items=[]),
+            FakeExecuteResult(scalars_items=[legacy_user]),
+        ]
+    )
+
+    token = asyncio.run(AuthService.request_nickname_recovery("pedro@example.com", db))
+    payload = AuthService.recover_nickname.__globals__["JWTUtils"].decode_jwt(token)
+
+    assert payload["sub"] == str(legacy_user.id)
+    assert legacy_user.email_hash == UserLookupUtils.hash_email("pedro@example.com")
+    assert legacy_user.nickname_hash == UserLookupUtils.hash_nickname("pedrov")
+    assert db.committed is True
+
+
 def test_auth_service_reset_password_updates_encrypted_password():
     user = _build_user()
     db = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[user])])
@@ -357,6 +440,98 @@ def test_auth_service_reset_password_rejects_weak_password():
     assert "Password must be at least 8 characters long" in str(exc.value)
 
 
+def test_auth_service_recover_nickname_updates_encrypted_nickname():
+    user = _build_user()
+    db = FakeAsyncSession(
+        execute_results=[
+            FakeExecuteResult(scalars_items=[user]),
+            FakeExecuteResult(scalars_items=[]),
+        ]
+    )
+    token = AuthService.recover_nickname.__globals__["JWTUtils"].encode_jwt(
+        {"id": str(user.id), "sub": str(user.id), "purpose": "nickname_recovery"}
+    )
+
+    nickname = asyncio.run(
+        AuthService.recover_nickname(token, "nuevo_pedrov", db)
+    )
+
+    assert nickname == "nuevo_pedrov"
+    assert AuthService.recover_nickname.__globals__["fernet_utils"].decrypt(
+        user.nickname
+    ) == "nuevo_pedrov"
+    assert user.nickname_hash == UserLookupUtils.hash_nickname("nuevo_pedrov")
+    assert user.updated_at is not None
+    assert db.committed is True
+
+
+def test_auth_service_reset_password_removes_spaces_from_new_password():
+    user = _build_user()
+    db = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[user])])
+    token = AuthService.reset_password.__globals__["JWTUtils"].encode_jwt(
+        {"id": str(user.id), "sub": str(user.id), "purpose": "password_reset"}
+    )
+
+    asyncio.run(AuthService.reset_password(token, " Nova Senha123! ", db))
+
+    assert AuthService.reset_password.__globals__["fernet_utils"].decrypt(
+        user.password
+    ) == "NovaSenha123!"
+
+
+def test_auth_service_recover_nickname_rejects_invalid_purpose():
+    user = _build_user()
+    db = FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[user])])
+    token = AuthService.recover_nickname.__globals__["JWTUtils"].encode_jwt(
+        {"id": str(user.id), "sub": str(user.id), "purpose": "login"}
+    )
+
+    with pytest.raises(ValueError) as exc:
+        asyncio.run(AuthService.recover_nickname(token, "nuevo_pedrov", db))
+
+    assert str(exc.value) == "Invalid nickname recovery token"
+
+
+def test_auth_service_recover_nickname_rejects_unknown_user():
+    token = AuthService.recover_nickname.__globals__["JWTUtils"].encode_jwt(
+        {"id": str(uuid4()), "sub": str(uuid4()), "purpose": "nickname_recovery"}
+    )
+
+    with pytest.raises(ValueError) as exc:
+        asyncio.run(
+            AuthService.recover_nickname(
+                token,
+                "nuevo_pedrov",
+                FakeAsyncSession(execute_results=[FakeExecuteResult(scalars_items=[])]),
+            )
+        )
+
+    assert str(exc.value) == "Invalid nickname recovery token"
+
+
+def test_auth_service_recover_nickname_rejects_duplicate_nickname():
+    user = _build_user()
+    duplicate_user = _build_user()
+    duplicate_user.id = uuid4()
+    duplicate_user.nickname = FernetUtils().encrypt("nickname_em_uso")
+    duplicate_user.nickname_hash = UserLookupUtils.hash_nickname("nickname_em_uso")
+
+    db = FakeAsyncSession(
+        execute_results=[
+            FakeExecuteResult(scalars_items=[user]),
+            FakeExecuteResult(scalars_items=[duplicate_user]),
+        ]
+    )
+    token = AuthService.recover_nickname.__globals__["JWTUtils"].encode_jwt(
+        {"id": str(user.id), "sub": str(user.id), "purpose": "nickname_recovery"}
+    )
+
+    with pytest.raises(ValueError) as exc:
+        asyncio.run(AuthService.recover_nickname(token, "nickname_em_uso", db))
+
+    assert str(exc.value) == "Nickname already exists"
+
+
 def test_email_service_builds_password_reset_url(monkeypatch):
     monkeypatch.setattr(
         "src.services.email_service.settings",
@@ -374,8 +549,33 @@ def test_email_service_builds_password_reset_url(monkeypatch):
     )
 
     assert message.get_content_type() == "text/html"
-    assert "link de redefinicao de senha" in message.get_content()
+    assert message["Subject"] == "Restablecimiento de contrasena"
+    assert "enlace para restablecer tu contrasena" in message.get_content()
     assert 'href="https://app.example.com/reset-password?token=reset-token"' in (
+        message.get_content()
+    )
+
+
+def test_email_service_builds_nickname_recovery_url(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            NICKNAME_RECOVERY_URL="https://app.example.com/recover-nickname",
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+            NICKNAME_RECOVERY_TOKEN_EXPIRATION_MINUTES=15,
+        ),
+    )
+
+    message = EmailService._build_nickname_recovery_message(
+        "pedro@example.com",
+        "recovery-token",
+    )
+
+    assert message.get_content_type() == "text/html"
+    assert message["Subject"] == "Cambio de nickname"
+    assert "enlace para cambiar tu nickname" in message.get_content()
+    assert 'href="https://app.example.com/recover-nickname?token=recovery-token"' in (
         message.get_content()
     )
 
@@ -510,11 +710,12 @@ def test_email_service_rejects_multiple_recipients_in_single_message():
     )
 
 
-def test_email_service_uses_plain_token_when_reset_url_missing(monkeypatch):
+def test_email_service_uses_frontend_origin_when_reset_url_missing(monkeypatch):
     monkeypatch.setattr(
         "src.services.email_service.settings",
         SimpleNamespace(
             PASSWORD_RESET_URL=None,
+            FRONTEND_ORIGINS=["https://front.example.com"],
             SMTP_FROM_EMAIL="noreply@example.com",
             SMTP_FROM_NAME="UBA Questionary",
             PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES=30,
@@ -527,8 +728,63 @@ def test_email_service_uses_plain_token_when_reset_url_missing(monkeypatch):
     )
 
     assert message.get_content_type() == "text/html"
-    assert 'href="reset-token"' in message.get_content()
-    assert "link de redefinicao de senha" in message.get_content()
+    assert 'href="https://front.example.com/reset-password?token=reset-token"' in (
+        message.get_content()
+    )
+    assert "enlace para restablecer tu contrasena" in message.get_content()
+
+
+def test_email_service_uses_password_reset_url_as_fallback_for_nickname_recovery(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            NICKNAME_RECOVERY_URL=None,
+            PASSWORD_RESET_URL="https://front.example.com/reset-password",
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+            NICKNAME_RECOVERY_TOKEN_EXPIRATION_MINUTES=15,
+        ),
+    )
+
+    message = EmailService._build_nickname_recovery_message(
+        "pedro@example.com",
+        "recovery-token",
+    )
+
+    assert message.get_content_type() == "text/html"
+    assert 'href="https://front.example.com/recover-nickname?token=recovery-token"' in (
+        message.get_content()
+    )
+    assert "enlace para cambiar tu nickname" in message.get_content()
+
+
+def test_email_service_uses_frontend_origin_when_all_recovery_urls_are_missing(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            NICKNAME_RECOVERY_URL=None,
+            PASSWORD_RESET_URL=None,
+            FRONTEND_ORIGINS=["https://front.example.com"],
+            SMTP_FROM_EMAIL="noreply@example.com",
+            SMTP_FROM_NAME="UBA Questionary",
+            NICKNAME_RECOVERY_TOKEN_EXPIRATION_MINUTES=15,
+        ),
+    )
+
+    message = EmailService._build_nickname_recovery_message(
+        "pedro@example.com",
+        "recovery-token",
+    )
+
+    assert message.get_content_type() == "text/html"
+    assert 'href="https://front.example.com/recover-nickname?token=recovery-token"' in (
+        message.get_content()
+    )
+    assert "enlace para cambiar tu nickname" in message.get_content()
 
 
 def test_email_service_build_password_reset_message_requires_from_email(monkeypatch):
@@ -546,6 +802,28 @@ def test_email_service_build_password_reset_message_requires_from_email(monkeypa
         EmailService._build_password_reset_message(
             "pedro@example.com",
             "reset-token",
+        )
+
+    assert str(exc.value) == "SMTP_FROM_EMAIL must be configured when SMTP is enabled."
+
+
+def test_email_service_build_nickname_recovery_message_requires_from_email(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "src.services.email_service.settings",
+        SimpleNamespace(
+            NICKNAME_RECOVERY_URL="https://app.example.com/recover-nickname",
+            SMTP_FROM_EMAIL=None,
+            SMTP_FROM_NAME="UBA Questionary",
+            NICKNAME_RECOVERY_TOKEN_EXPIRATION_MINUTES=15,
+        ),
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        EmailService._build_nickname_recovery_message(
+            "pedro@example.com",
+            "recovery-token",
         )
 
     assert str(exc.value) == "SMTP_FROM_EMAIL must be configured when SMTP is enabled."
@@ -596,7 +874,11 @@ def test_email_service_sends_message_with_tls_and_login(monkeypatch):
     assert ("connect", "smtp.example.com", 587, 30) in events
     assert "starttls" in events
     assert ("login", "noreply@example.com", "secret") in events
-    assert ("send_message", "pedro@example.com", "Redefinicao de senha") in events
+    assert (
+        "send_message",
+        "pedro@example.com",
+        "Restablecimiento de contrasena",
+    ) in events
     assert "quit" in events
 
 
@@ -723,7 +1005,11 @@ def test_email_service_normalizes_quoted_gmail_credentials(monkeypatch):
         "support@example.com",
         "abcdefghijklmnop",
     ) in events
-    assert ("send_message", "pedro@example.com", "Redefinicao de senha") in events
+    assert (
+        "send_message",
+        "pedro@example.com",
+        "Restablecimiento de contrasena",
+    ) in events
     assert "quit" in events
 
 

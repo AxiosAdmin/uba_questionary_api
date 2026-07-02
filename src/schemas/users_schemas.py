@@ -2,9 +2,10 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 
 from src.utils.fernet_utils import FernetUtils
+from src.utils.user_input_sanitizer import UserInputSanitizer
 
 
 class UsersBase(BaseModel):
@@ -50,7 +51,7 @@ class UsersPost(UsersBase):
 
     @field_validator("name", "email", "nickname", "dni", "password", mode="before")
     @classmethod
-    def encrypt_fields(cls, value: str) -> str:
+    def encrypt_fields(cls, value: str, info: ValidationInfo) -> str:
         """
         Encrypt field value before saving to database.
 
@@ -62,6 +63,9 @@ class UsersPost(UsersBase):
         """
         if not value:
             return value
+
+        if info.field_name in {"email", "nickname", "dni", "password"}:
+            value = UserInputSanitizer.remove_all_spaces(value)
 
         return FernetUtils().encrypt(value)
 
@@ -85,10 +89,13 @@ class UsersProfileUpdate(UsersBase):
 
     @field_validator("name", "email", "nickname", "dni", mode="before")
     @classmethod
-    def encrypt_fields(cls, value: str) -> str:
+    def encrypt_fields(cls, value: str, info: ValidationInfo) -> str:
         """Encrypt profile fields before saving to the database."""
         if not value:
             return value
+
+        if info.field_name in {"email", "nickname", "dni"}:
+            value = UserInputSanitizer.remove_all_spaces(value)
 
         return FernetUtils().encrypt(value)
 

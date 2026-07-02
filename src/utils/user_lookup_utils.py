@@ -2,6 +2,8 @@
 
 from hashlib import sha256
 
+from src.utils.user_input_sanitizer import UserInputSanitizer
+
 
 class UserLookupUtils:
     """Helper methods for normalizing and hashing lookup fields."""
@@ -9,12 +11,12 @@ class UserLookupUtils:
     @staticmethod
     def normalize_email(email: str) -> str:
         """Normalize an email for uniqueness and lookup."""
-        return str(email or "").strip().casefold()
+        return UserInputSanitizer.remove_all_spaces(email).casefold()
 
     @staticmethod
     def normalize_nickname(nickname: str) -> str:
         """Normalize a nickname while preserving current case-sensitive behavior."""
-        return str(nickname or "")
+        return UserInputSanitizer.remove_all_spaces(nickname)
 
     @staticmethod
     def _hash_value(value: str) -> str:
