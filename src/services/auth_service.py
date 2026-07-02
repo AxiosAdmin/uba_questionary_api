@@ -13,6 +13,7 @@ from src.services.user_institution_service import UserInstitutionService
 from src.utils.fernet_utils import FernetUtils
 from src.utils.jwt_utils import JWTUtils
 from src.utils.password_utils import validate_password_requirements
+from src.utils.user_input_sanitizer import UserInputSanitizer
 from src.utils.user_lookup_utils import UserLookupUtils
 
 fernet_utils = FernetUtils()
@@ -23,22 +24,52 @@ class AuthService:
     """Service for handling user authentication operations."""
 
     @staticmethod
+    async def _ensure_sanitized_user_fields(user, db):
+        updated = False
+
+        decrypted_email = fernet_utils.decrypt(user.email)
+        sanitized_email = UserInputSanitizer.remove_all_spaces(decrypted_email)
+        if decrypted_email != sanitized_email:
+            user.email = fernet_utils.encrypt(sanitized_email)
+            updated = True
+
+        expected_email_hash = UserLookupUtils.hash_email(sanitized_email)
+        if getattr(user, "email_hash", None) != expected_email_hash:
+            user.email_hash = expected_email_hash
+            updated = True
+
+        decrypted_nickname = fernet_utils.decrypt(user.nickname)
+        sanitized_nickname = UserInputSanitizer.remove_all_spaces(decrypted_nickname)
+        if decrypted_nickname != sanitized_nickname:
+            user.nickname = fernet_utils.encrypt(sanitized_nickname)
+            updated = True
+
+        expected_nickname_hash = UserLookupUtils.hash_nickname(sanitized_nickname)
+        if getattr(user, "nickname_hash", None) != expected_nickname_hash:
+            user.nickname_hash = expected_nickname_hash
+            updated = True
+
+        if updated:
+            await db.commit()
+
+        return user
+
+    @staticmethod
     async def _find_user_by_email(email: str, db):
         email_hash = UserLookupUtils.hash_email(email)
         result = await db.execute(select(Users).where(Users.email_hash == email_hash))
         user = result.scalars().first()
         if user is not None:
-            return user
+            return await AuthService._ensure_sanitized_user_fields(user, db)
 
         normalized_email = UserLookupUtils.normalize_email(email)
-        result = await db.execute(select(Users).where(Users.email_hash.is_(None)))
+        result = await db.execute(select(Users))
         for user in result.scalars().all():
             if (
                 UserLookupUtils.normalize_email(fernet_utils.decrypt(user.email))
                 == normalized_email
             ):
-                await AuthService._ensure_lookup_hashes(user, db)
-                return user
+                return await AuthService._ensure_sanitized_user_fields(user, db)
 
         return None
 
@@ -50,36 +81,22 @@ class AuthService:
         )
         user = result.scalars().first()
         if user is not None:
-            return user
+            return await AuthService._ensure_sanitized_user_fields(user, db)
 
         normalized_nickname = UserLookupUtils.normalize_nickname(nickname)
-        result = await db.execute(select(Users).where(Users.nickname_hash.is_(None)))
+        result = await db.execute(select(Users))
         for user in result.scalars().all():
             if (
                 UserLookupUtils.normalize_nickname(fernet_utils.decrypt(user.nickname))
                 == normalized_nickname
             ):
-                await AuthService._ensure_lookup_hashes(user, db)
-                return user
+                return await AuthService._ensure_sanitized_user_fields(user, db)
 
         return None
 
     @staticmethod
     async def _ensure_lookup_hashes(user, db):
-        updated = False
-
-        if getattr(user, "email_hash", None) is None:
-            user.email_hash = UserLookupUtils.hash_email(fernet_utils.decrypt(user.email))
-            updated = True
-
-        if getattr(user, "nickname_hash", None) is None:
-            user.nickname_hash = UserLookupUtils.hash_nickname(
-                fernet_utils.decrypt(user.nickname)
-            )
-            updated = True
-
-        if updated:
-            await db.commit()
+        await AuthService._ensure_sanitized_user_fields(user, db)
 
     @staticmethod
     async def _find_user_by_id(user_id, db):
@@ -117,8 +134,13 @@ class AuthService:
         Raises:
             ValueError: If nickname or password is invalid
         """
+        sanitized_password = UserInputSanitizer.remove_all_spaces(password)
         user = await AuthService._find_user_by_nickname(nickname, db)
-        if user and fernet_utils.decrypt(user.password) == password:
+        if (
+            user
+            and UserInputSanitizer.remove_all_spaces(fernet_utils.decrypt(user.password))
+            == sanitized_password
+        ):
             if user.global_role == "Admin":
                 return user
 
@@ -161,8 +183,25 @@ class AuthService:
         )
 
     @staticmethod
+    async def request_nickname_recovery(email: str, db):
+        """Generate a temporary nickname recovery token for an existing user."""
+        user = await AuthService._find_user_by_email(email, db)
+        if user is None:
+            return None
+
+        return JWTUtils.encode_jwt(
+            {
+                "id": str(user.id),
+                "sub": str(user.id),
+                "purpose": "nickname_recovery",
+            },
+            expires_in_minutes=settings.NICKNAME_RECOVERY_TOKEN_EXPIRATION_MINUTES,
+        )
+
+    @staticmethod
     async def reset_password(token: str, new_password: str, db):
         """Reset a user password using a valid password reset token."""
+        sanitized_password = UserInputSanitizer.remove_all_spaces(new_password)
         payload = JWTUtils.decode_jwt(token)
 
         if payload.get("purpose") != "password_reset":
@@ -172,10 +211,34 @@ class AuthService:
         if user is None:
             raise ValueError("Invalid password reset token")
 
-        validate_password_requirements(new_password)
+        validate_password_requirements(sanitized_password)
 
-        user.password = fernet_utils.encrypt(new_password)
+        user.password = fernet_utils.encrypt(sanitized_password)
         user.updated_at = datetime.now()
         await db.commit()
 
         return user
+
+    @staticmethod
+    async def recover_nickname(token: str, new_nickname: str, db):
+        """Update a user nickname using a valid nickname recovery token."""
+        sanitized_nickname = UserInputSanitizer.remove_all_spaces(new_nickname)
+        payload = JWTUtils.decode_jwt(token)
+
+        if payload.get("purpose") != "nickname_recovery":
+            raise ValueError("Invalid nickname recovery token")
+
+        user = await AuthService._find_user_by_id(payload.get("sub"), db)
+        if user is None:
+            raise ValueError("Invalid nickname recovery token")
+
+        existing_user = await AuthService._find_user_by_nickname(sanitized_nickname, db)
+        if existing_user is not None and existing_user.id != user.id:
+            raise ValueError("Nickname already exists")
+
+        user.nickname = fernet_utils.encrypt(sanitized_nickname)
+        user.nickname_hash = UserLookupUtils.hash_nickname(sanitized_nickname)
+        user.updated_at = datetime.now()
+        await db.commit()
+
+        return sanitized_nickname

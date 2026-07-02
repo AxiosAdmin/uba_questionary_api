@@ -5,11 +5,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.controllers.auth_controller import AuthController
 from src.schemas.auth_schema import (
+    ForgotNicknameResponseSchema,
+    ForgotNicknameSchema,
     ForgotPasswordResponseSchema,
     ForgotPasswordSchema,
     LoginSchema,
     LoginResponseSchema,
     LoginAdminResponseSchema,
+    RecoverNicknameResponseSchema,
+    RecoverNicknameSchema,
     LoginUserResponseSchema,
     ResetPasswordResponseSchema,
     ResetPasswordSchema,
@@ -64,9 +68,35 @@ async def forgot_password(
 
 
 @auth_router.post(
+    "/forgot-nickname",
+    response_model=ForgotNicknameResponseSchema,
+)
+async def forgot_nickname(
+    body: ForgotNicknameSchema, db: AsyncSession = Depends(get_db)
+):
+    """Start the nickname recovery flow for a given email."""
+    return await AuthController.forgot_nickname(body.email, db)
+
+
+@auth_router.post(
     "/reset-password",
     response_model=ResetPasswordResponseSchema,
 )
 async def reset_password(body: ResetPasswordSchema, db: AsyncSession = Depends(get_db)):
     """Reset the user password with a valid token."""
     return await AuthController.reset_password(body.token, body.new_password, db)
+
+
+@auth_router.post(
+    "/recover-nickname",
+    response_model=RecoverNicknameResponseSchema,
+)
+async def recover_nickname(
+    body: RecoverNicknameSchema, db: AsyncSession = Depends(get_db)
+):
+    """Update the user nickname with a valid token."""
+    return await AuthController.recover_nickname(
+        body.token,
+        body.new_nickname,
+        db,
+    )

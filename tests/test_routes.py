@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import jwt
 from fastapi.responses import JSONResponse
+from src.utils.fernet_utils import FernetUtils
 
 stripe_router_module = importlib.import_module("src.routers.stripe_router")
 
@@ -19,7 +20,9 @@ def test_registered_route_matrix(app):
     assert ("POST", "/login") in registered
     assert ("POST", "/login/admin") in registered
     assert ("POST", "/forgot-password") in registered
+    assert ("POST", "/forgot-nickname") in registered
     assert ("POST", "/reset-password") in registered
+    assert ("POST", "/recover-nickname") in registered
     assert ("POST", "/users") in registered
     assert ("GET", "/users/me") in registered
     assert ("PUT", "/users/me") in registered
@@ -70,6 +73,32 @@ def test_login_route_returns_controller_response(client, override_db, monkeypatc
 
     assert response.status_code == 200
     assert response.json()["token"] == "jwt-token"
+
+
+def test_login_route_sanitizes_whitespace_sensitive_fields(
+    client, override_db, monkeypatch
+):
+    async def _login(nickname, password, db):
+        assert nickname == "pedrov"
+        assert password == "Secret123!"
+        return {
+            "user": {
+                "id": str(uuid4()),
+                "name": "Pedro Vieira",
+                "nickname": "pedrov",
+                "global_role": "User",
+            },
+            "question_generation_usage": None,
+        }, "jwt-token"
+
+    monkeypatch.setattr("src.controllers.auth_controller.AuthController.login", _login)
+
+    response = client.post(
+        "/login",
+        json={"nickname": " pe drov ", "password": " Secret 123! "},
+    )
+
+    assert response.status_code == 200
 
 
 def test_login_route_validates_required_fields(client, override_db):
@@ -132,6 +161,23 @@ def test_forgot_password_route_returns_generic_message(
     }
 
 
+def test_forgot_password_route_sanitizes_email(client, override_db, monkeypatch):
+    async def _forgot_password(email, db):
+        assert email == "pedro@example.com"
+        return {
+            "message": "If the email exists, password reset instructions have been generated."
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthController.forgot_password",
+        _forgot_password,
+    )
+
+    response = client.post("/forgot-password", json={"email": " pedro @example.com "})
+
+    assert response.status_code == 200
+
+
 def test_reset_password_route_returns_success(client, override_db, monkeypatch):
     async def _reset_password(token, new_password, db):
         assert token == "reset-token"
@@ -152,14 +198,135 @@ def test_reset_password_route_returns_success(client, override_db, monkeypatch):
     assert response.json() == {"message": "Password updated successfully."}
 
 
+def test_reset_password_route_sanitizes_new_password(client, override_db, monkeypatch):
+    async def _reset_password(token, new_password, db):
+        assert token == "reset-token"
+        assert new_password == "NovaSenha123!"
+        return {"message": "Password updated successfully."}
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthController.reset_password",
+        _reset_password,
+    )
+
+    response = client.post(
+        "/reset-password",
+        json={"token": "reset-token", "new_password": " Nova Senha123! "},
+    )
+
+    assert response.status_code == 200
+
+
+def test_forgot_nickname_route_returns_generic_message(
+    client, override_db, monkeypatch
+):
+    async def _forgot_nickname(email, db):
+        assert email == "pedro@example.com"
+        return {
+            "message": "If the email exists, nickname recovery instructions have been generated."
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthController.forgot_nickname",
+        _forgot_nickname,
+    )
+
+    response = client.post("/forgot-nickname", json={"email": "pedro@example.com"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": "If the email exists, nickname recovery instructions have been generated.",
+        "recovery_token": None,
+    }
+
+
+def test_forgot_nickname_route_sanitizes_email(client, override_db, monkeypatch):
+    async def _forgot_nickname(email, db):
+        assert email == "pedro@example.com"
+        return {
+            "message": "If the email exists, nickname recovery instructions have been generated."
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthController.forgot_nickname",
+        _forgot_nickname,
+    )
+
+    response = client.post("/forgot-nickname", json={"email": " pedro @example.com "})
+
+    assert response.status_code == 200
+
+
 def test_reset_password_route_validates_required_fields(client, override_db):
     response = client.post("/reset-password", json={"token": "reset-token"})
 
     assert response.status_code == 422
 
 
+def test_recover_nickname_route_returns_success(client, override_db, monkeypatch):
+    async def _recover_nickname(token, new_nickname, db):
+        assert token == "recovery-token"
+        assert new_nickname == "nuevo_nickname"
+        return {
+            "message": "Nickname updated successfully.",
+            "nickname": "nuevo_nickname",
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthController.recover_nickname",
+        _recover_nickname,
+    )
+
+    response = client.post(
+        "/recover-nickname",
+        json={"token": "recovery-token", "new_nickname": "nuevo_nickname"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": "Nickname updated successfully.",
+        "nickname": "nuevo_nickname",
+    }
+
+
+def test_recover_nickname_route_sanitizes_new_nickname(
+    client, override_db, monkeypatch
+):
+    async def _recover_nickname(token, new_nickname, db):
+        assert token == "recovery-token"
+        assert new_nickname == "nuevonickname"
+        return {
+            "message": "Nickname updated successfully.",
+            "nickname": "nuevonickname",
+        }
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthController.recover_nickname",
+        _recover_nickname,
+    )
+
+    response = client.post(
+        "/recover-nickname",
+        json={"token": "recovery-token", "new_nickname": " nuevo nickname "},
+    )
+
+    assert response.status_code == 200
+
+
+def test_recover_nickname_route_validates_required_fields(client, override_db):
+    response = client.post("/recover-nickname", json={})
+
+    assert response.status_code == 422
+
+
 def test_users_route_creates_user(client, override_db, monkeypatch):
+    fernet = FernetUtils()
+
     async def _create_user(body, db):
+        assert fernet.decrypt(body.email) == "pedro@example.com"
+        assert fernet.decrypt(body.nickname) == "pedrov"
+        assert fernet.decrypt(body.dni) == "12345678"
+        assert fernet.decrypt(body.password) == "Secret123!"
         return {
             "data": {
                 "id": str(uuid4()),
@@ -181,10 +348,10 @@ def test_users_route_creates_user(client, override_db, monkeypatch):
         "/users",
         json={
             "name": "Pedro Vieira",
-            "email": "pedro@example.com",
-            "nickname": "pedrov",
-            "dni": "12345678",
-            "password": "secret123",
+            "email": " pedro @example.com ",
+            "nickname": " pe drov ",
+            "dni": " 12 345 678 ",
+            "password": " Secret 123! ",
         },
     )
 
@@ -277,10 +444,14 @@ def test_users_me_route_updates_authenticated_user(
 ):
     user_id = uuid4()
     headers, _ = authorize_request(user_id=user_id)
+    fernet = FernetUtils()
 
     async def _update_current_user(request_user_id, body, db):
         assert str(request_user_id) == str(user_id)
         assert body.dni
+        assert fernet.decrypt(body.email) == "pedro@example.com"
+        assert fernet.decrypt(body.nickname) == "pedrov"
+        assert fernet.decrypt(body.dni) == "12345678"
         return {
             "data": {
                 "id": str(user_id),
@@ -303,9 +474,9 @@ def test_users_me_route_updates_authenticated_user(
         "/users/me",
         json={
             "name": "Pedro Vieira",
-            "email": "pedro@example.com",
-            "nickname": "pedrov",
-            "dni": "12345678",
+            "email": " pedro @example.com ",
+            "nickname": " pe drov ",
+            "dni": " 12 345 678 ",
         },
         headers=headers,
     )

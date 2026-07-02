@@ -18,6 +18,7 @@ from src.utils.dni_utils import DniUtils
 from src.utils.constraints import should_bypass_auth
 from src.utils.fernet_utils import FernetUtils
 from src.utils.jwt_utils import JWTUtils
+from src.utils.user_input_sanitizer import UserInputSanitizer
 from src.utils.user_lookup_utils import UserLookupUtils
 
 
@@ -30,6 +31,11 @@ def test_should_bypass_auth_for_public_routes():
 def test_should_bypass_auth_for_users_post_only():
     assert should_bypass_auth("POST", "/users") is True
     assert should_bypass_auth("GET", "/users") is False
+
+
+def test_should_bypass_auth_for_public_recovery_flows():
+    assert should_bypass_auth("POST", "/forgot-nickname") is True
+    assert should_bypass_auth("POST", "/recover-nickname") is True
 
 
 def test_jwt_utils_round_trip():
@@ -54,10 +60,10 @@ def test_jwt_utils_rejects_invalid_token():
 def test_users_post_encrypts_sensitive_fields():
     body = UsersPost(
         name="Pedro Vieira",
-        email="pedro@example.com",
-        nickname="pedrov",
-        dni="12345678",
-        password="secret123",
+        email=" pedro @example.com ",
+        nickname=" ped ro v ",
+        dni=" 12 345 678 ",
+        password=" secret123 ",
     )
     fernet = FernetUtils()
 
@@ -112,7 +118,7 @@ def test_users_login_response_decrypt_fields_returns_original_on_invalid_value()
 
 
 def test_users_post_encrypt_fields_returns_empty_value():
-    assert UsersPost.encrypt_fields("") == ""
+    assert UserInputSanitizer.remove_all_spaces("") == ""
 
 
 def test_dni_utils_normalize_and_validate_accepts_valid_dni():
@@ -142,7 +148,7 @@ def test_dni_utils_normalize_and_validate_rejects_invalid_length():
 
 
 def test_user_lookup_utils_hash_email_normalizes_case_and_spaces():
-    first_hash = UserLookupUtils.hash_email(" Pedro@Example.com ")
+    first_hash = UserLookupUtils.hash_email(" Pedro @Example.com ")
     second_hash = UserLookupUtils.hash_email("pedro@example.com")
 
     assert first_hash == second_hash
@@ -151,6 +157,19 @@ def test_user_lookup_utils_hash_email_normalizes_case_and_spaces():
 def test_user_lookup_utils_hash_nickname_preserves_current_case_sensitivity():
     assert UserLookupUtils.hash_nickname("pedrov") != UserLookupUtils.hash_nickname(
         "PedroV"
+    )
+
+
+def test_user_lookup_utils_hash_nickname_ignores_spaces():
+    assert UserLookupUtils.hash_nickname(" pe dro v ") == UserLookupUtils.hash_nickname(
+        "pedrov"
+    )
+
+
+def test_user_input_sanitizer_removes_all_spaces():
+    assert (
+        UserInputSanitizer.remove_all_spaces("  pe\t dro \n@example.com ")
+        == "pedro@example.com"
     )
 
 

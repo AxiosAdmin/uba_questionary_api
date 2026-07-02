@@ -14,7 +14,9 @@ BYPASS_ROUTES = {
 BYPASS_ROUTE_METHODS = {
     ("POST", "/users"),
     ("POST", "/forgot-password"),
+    ("POST", "/forgot-nickname"),
     ("POST", "/reset-password"),
+    ("POST", "/recover-nickname"),
 }
 
 

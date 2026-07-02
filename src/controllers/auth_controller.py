@@ -112,6 +112,34 @@ class AuthController:
         return response
 
     @staticmethod
+    async def forgot_nickname(email: str, db):
+        """
+        Start the nickname recovery flow.
+
+        Returns a generic success message regardless of whether the email exists,
+        preventing account enumeration.
+        """
+        token = await AuthService.request_nickname_recovery(email, db)
+        if token is not None:
+            try:
+                EmailService.send_nickname_recovery_email(email, token)
+            except RuntimeError:
+                logger.exception(
+                    "Nickname recovery email delivery failed for the forgot-nickname flow."
+                )
+
+        response = {
+            "message": (
+                "If the email exists, nickname recovery instructions have been generated."
+            )
+        }
+
+        if settings.NICKNAME_RECOVERY_INCLUDE_TOKEN_IN_RESPONSE and token is not None:
+            response["recovery_token"] = token
+
+        return response
+
+    @staticmethod
     async def reset_password(token: str, new_password: str, db):
         """Validate a reset token and update the stored password."""
         try:
@@ -124,6 +152,26 @@ class AuthController:
         except jwt.InvalidTokenError as exc:
             raise HTTPException(
                 status_code=400, detail="Invalid password reset token"
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @staticmethod
+    async def recover_nickname(token: str, new_nickname: str, db):
+        """Validate a recovery token and update the stored nickname."""
+        try:
+            nickname = await AuthService.recover_nickname(token, new_nickname, db)
+            return {
+                "message": "Nickname updated successfully.",
+                "nickname": nickname,
+            }
+        except jwt.ExpiredSignatureError as exc:
+            raise HTTPException(
+                status_code=401, detail="Nickname recovery token expired"
+            ) from exc
+        except jwt.InvalidTokenError as exc:
+            raise HTTPException(
+                status_code=400, detail="Invalid nickname recovery token"
             ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

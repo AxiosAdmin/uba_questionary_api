@@ -18,6 +18,7 @@ from src.utils.password_utils import (
     PASSWORD_REQUIREMENTS_MESSAGE,
     validate_password_requirements,
 )
+from src.utils.user_input_sanitizer import UserInputSanitizer
 from src.utils.user_lookup_utils import UserLookupUtils
 
 fernet = FernetUtils()
@@ -97,7 +98,11 @@ class UsersController:
     @staticmethod
     def _validate_password_requirements(encrypted_password: str) -> None:
         try:
-            validate_password_requirements(fernet.decrypt(encrypted_password))
+            validate_password_requirements(
+                UserInputSanitizer.remove_all_spaces(
+                    fernet.decrypt(encrypted_password)
+                )
+            )
         except ValueError as exc:
             raise HTTPException(
                 status_code=400,
@@ -220,8 +225,15 @@ class UsersController:
             UsersController._validate_password_requirements(body.password)
             normalized_dni = UsersController._validate_dni(body.dni)
             dni_hash = DniUtils.hash_normalized(normalized_dni)
-            plain_email = fernet.decrypt(body.email)
-            plain_nickname = fernet.decrypt(body.nickname)
+            plain_email = UserInputSanitizer.remove_all_spaces(
+                fernet.decrypt(body.email)
+            )
+            plain_nickname = UserInputSanitizer.remove_all_spaces(
+                fernet.decrypt(body.nickname)
+            )
+            plain_password = UserInputSanitizer.remove_all_spaces(
+                fernet.decrypt(body.password)
+            )
             email_hash, nickname_hash = (
                 await UsersController._validate_unique_profile_fields(
                     None,
@@ -250,7 +262,10 @@ class UsersController:
 
             new_user_payload = body.model_dump()
             new_user_payload["id"] = new_user_id
+            new_user_payload["email"] = fernet.encrypt(plain_email)
+            new_user_payload["nickname"] = fernet.encrypt(plain_nickname)
             new_user_payload["dni"] = fernet.encrypt(normalized_dni)
+            new_user_payload["password"] = fernet.encrypt(plain_password)
             new_user_payload["email_hash"] = email_hash
             new_user_payload["nickname_hash"] = nickname_hash
             new_user_payload["dni_hash"] = dni_hash
@@ -290,8 +305,12 @@ class UsersController:
                     )
 
             dni_hash = DniUtils.hash_normalized(normalized_dni)
-            plain_email = fernet.decrypt(body.email)
-            plain_nickname = fernet.decrypt(body.nickname)
+            plain_email = UserInputSanitizer.remove_all_spaces(
+                fernet.decrypt(body.email)
+            )
+            plain_nickname = UserInputSanitizer.remove_all_spaces(
+                fernet.decrypt(body.nickname)
+            )
             email_hash, nickname_hash = (
                 await UsersController._validate_unique_profile_fields(
                     user.id,
@@ -303,9 +322,9 @@ class UsersController:
             )
 
             user.name = body.name
-            user.email = body.email
+            user.email = fernet.encrypt(plain_email)
             user.email_hash = email_hash
-            user.nickname = body.nickname
+            user.nickname = fernet.encrypt(plain_nickname)
             user.nickname_hash = nickname_hash
             user.dni = fernet.encrypt(normalized_dni)
             user.dni_hash = dni_hash

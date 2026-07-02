@@ -405,6 +405,217 @@ def test_auth_controller_reset_password_translates_validation_errors(monkeypatch
     assert exc.value.detail == "Password must be strong"
 
 
+def test_auth_controller_forgot_nickname_returns_generic_message(monkeypatch):
+    async def _request_nickname_recovery(*args, **kwargs):
+        return "generated-token"
+
+    sent = {}
+
+    def _send_nickname_recovery_email(recipient, token):
+        sent["recipient"] = recipient
+        sent["token"] = token
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.request_nickname_recovery",
+        _request_nickname_recovery,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.EmailService.send_nickname_recovery_email",
+        _send_nickname_recovery_email,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.settings",
+        SimpleNamespace(NICKNAME_RECOVERY_INCLUDE_TOKEN_IN_RESPONSE=False),
+    )
+
+    response = asyncio.run(
+        AuthController.forgot_nickname("pedro@example.com", FakeAsyncSession())
+    )
+
+    assert response == {
+        "message": "If the email exists, nickname recovery instructions have been generated."
+    }
+    assert sent == {"recipient": "pedro@example.com", "token": "generated-token"}
+
+
+def test_auth_controller_forgot_nickname_can_include_token_for_dev(monkeypatch):
+    async def _request_nickname_recovery(*args, **kwargs):
+        return "generated-token"
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.request_nickname_recovery",
+        _request_nickname_recovery,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.EmailService.send_nickname_recovery_email",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.settings",
+        SimpleNamespace(NICKNAME_RECOVERY_INCLUDE_TOKEN_IN_RESPONSE=True),
+    )
+
+    response = asyncio.run(
+        AuthController.forgot_nickname("pedro@example.com", FakeAsyncSession())
+    )
+
+    assert response["recovery_token"] == "generated-token"
+
+
+def test_auth_controller_forgot_nickname_skips_email_when_user_not_found(monkeypatch):
+    async def _request_nickname_recovery(*args, **kwargs):
+        return None
+
+    called = {"sent": False}
+
+    def _send_nickname_recovery_email(*args, **kwargs):
+        called["sent"] = True
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.request_nickname_recovery",
+        _request_nickname_recovery,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.EmailService.send_nickname_recovery_email",
+        _send_nickname_recovery_email,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.settings",
+        SimpleNamespace(NICKNAME_RECOVERY_INCLUDE_TOKEN_IN_RESPONSE=False),
+    )
+
+    response = asyncio.run(
+        AuthController.forgot_nickname("missing@example.com", FakeAsyncSession())
+    )
+
+    assert response == {
+        "message": "If the email exists, nickname recovery instructions have been generated."
+    }
+    assert called["sent"] is False
+
+
+def test_auth_controller_forgot_nickname_returns_generic_message_when_email_fails(
+    monkeypatch,
+):
+    async def _request_nickname_recovery(*args, **kwargs):
+        return "generated-token"
+
+    def _send_nickname_recovery_email(*args, **kwargs):
+        raise RuntimeError("Unable to send nickname recovery email.")
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.request_nickname_recovery",
+        _request_nickname_recovery,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.EmailService.send_nickname_recovery_email",
+        _send_nickname_recovery_email,
+    )
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.settings",
+        SimpleNamespace(NICKNAME_RECOVERY_INCLUDE_TOKEN_IN_RESPONSE=False),
+    )
+
+    response = asyncio.run(
+        AuthController.forgot_nickname("pedro@example.com", FakeAsyncSession())
+    )
+
+    assert response == {
+        "message": "If the email exists, nickname recovery instructions have been generated."
+    }
+
+
+def test_auth_controller_recover_nickname_returns_success(monkeypatch):
+    async def _recover_nickname(token, new_nickname, db):
+        assert token == "token"
+        assert new_nickname == "nuevo_nickname"
+        return new_nickname
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.recover_nickname",
+        _recover_nickname,
+    )
+
+    response = asyncio.run(
+        AuthController.recover_nickname(
+            "token",
+            "nuevo_nickname",
+            FakeAsyncSession(),
+        )
+    )
+
+    assert response == {
+        "message": "Nickname updated successfully.",
+        "nickname": "nuevo_nickname",
+    }
+
+
+def test_auth_controller_recover_nickname_translates_expired_token(monkeypatch):
+    async def _recover_nickname(*args, **kwargs):
+        raise jwt.ExpiredSignatureError("expired")
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.recover_nickname",
+        _recover_nickname,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            AuthController.recover_nickname(
+                "token",
+                "nuevo_nickname",
+                FakeAsyncSession(),
+            )
+        )
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Nickname recovery token expired"
+
+
+def test_auth_controller_recover_nickname_translates_invalid_token(monkeypatch):
+    async def _recover_nickname(*args, **kwargs):
+        raise jwt.InvalidTokenError("invalid")
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.recover_nickname",
+        _recover_nickname,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            AuthController.recover_nickname(
+                "token",
+                "nuevo_nickname",
+                FakeAsyncSession(),
+            )
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Invalid nickname recovery token"
+
+
+def test_auth_controller_recover_nickname_translates_validation_errors(monkeypatch):
+    async def _recover_nickname(*args, **kwargs):
+        raise ValueError("Nickname already exists")
+
+    monkeypatch.setattr(
+        "src.controllers.auth_controller.AuthService.recover_nickname",
+        _recover_nickname,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            AuthController.recover_nickname(
+                "token",
+                "nuevo_nickname",
+                FakeAsyncSession(),
+            )
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Nickname already exists"
+
+
 def test_admin_controller_inactive_plan_campaign_returns_preview(monkeypatch):
     recipients = [
         {
