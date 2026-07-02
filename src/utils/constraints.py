@@ -10,6 +10,7 @@ BYPASS_ROUTES = {
     "/institutions",
     "/stripe/generate",
     "/stripe/webhook/payment",
+    "/new",
 }
 BYPASS_ROUTE_METHODS = {
     ("POST", "/users"),
